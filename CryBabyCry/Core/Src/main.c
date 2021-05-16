@@ -19,6 +19,10 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
+#include "dfsdm.h"
+#include "dma.h"
+#include "usart.h"
+#include "gpio.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
@@ -51,11 +55,6 @@
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
-DFSDM_Filter_HandleTypeDef hdfsdm1_filter0;
-DFSDM_Channel_HandleTypeDef hdfsdm1_channel2;
-DMA_HandleTypeDef hdma_dfsdm1_flt0;
-
-USART_HandleTypeDef husart1;
 
 /* USER CODE BEGIN PV */
 
@@ -63,10 +62,6 @@ USART_HandleTypeDef husart1;
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
-static void MX_GPIO_Init(void);
-static void MX_DMA_Init(void);
-static void MX_USART1_Init(void);
-static void MX_DFSDM1_Init(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
@@ -156,12 +151,6 @@ void HAL_DFSDM_FilterRegConvCpltCallback(DFSDM_Filter_HandleTypeDef *hdfsdm_filt
 
 }
 
-static float32_t buff32[FRAME_LENGTH];
-static q31_t bufq31[FRAME_LENGTH];
-static q15_t bufq15[FRAME_LENGTH];
-
-
-
 
 
 /* USER CODE END 0 */
@@ -217,35 +206,6 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-/*
-	  arm_rfft_fast_instance_f32  f32_fft_inst;
-	  arm_rfft_fast_init_f32(&f32_fft_inst, FRAME_LENGTH);
-	  arm_rfft_instance_q31  q31_fft_inst;
-	  arm_rfft_instance_q15  q15_fft_inst;
-
-	  arm_rfft_init_q31(&q31_fft_inst, FRAME_LENGTH, 0, 0);
-	  arm_rfft_init_q15(&q15_fft_inst, FRAME_LENGTH, 0, 0);
-
-
-
-		ResetTimer();
-		StartTimer();
-		arm_rfft_fast_f32(&f32_fft_inst, buff32, buff32, 0);
-		StopTimer();
-		printf("FFT f32 %d cycles\n", getCycles());
-
-		ResetTimer();
-		StartTimer();
-		arm_rfft_q31(&q31_fft_inst, bufq31, bufq31);
-		StopTimer();
-		printf("FFT q31 %d cycles\n", getCycles());
-
-		ResetTimer();
-		StartTimer();
-		arm_rfft_q15(&q15_fft_inst, bufq15, bufq15);
-		StopTimer();
-		printf("FFT q15 %d cycles\n", getCycles());
-*/
 
 	  if(mfcc_full){
 
@@ -257,54 +217,18 @@ int main(void)
 		  }
 		  printf("\n\n");
 
-//
-//		  for(int i = 0; i< MFCC_LENGTH; i++){
-//			  for(int m = 0; m < N_FILTS; m++){
-//				  printf("%f ", MFCC_OUT[i][m]);
-//
-//			  }
-//			  printf("\n");
-//		  }
 
+		  for(int i = 0; i< MFCC_LENGTH; i++){
+			  for(int m = 0; m < N_FILTS; m++){
+				  printf("%f ", MFCC_OUT[i][m]);
 
-
-
-
-
-
-/*
-		  printf("Output mag squared\n");
-		  for(int i = 0; i < FFT_LEN/2; i++){
-			  printf("%i ", bufferout[i]);
+			  }
+			  printf("\n");
 		  }
-		  printf("Done\n\n");*/
-
 
 
 		  while(1){}
 	  }
-
-	  /*
-	if(secondHalfFull){
-		printf("Second Half:\n");
-		for(int i=0;i<PROCESSED_BUF;i++){
-			printf("%i ",ProcessedBuff2[i]);
-		}
-		secondHalfFull = false;
-
-
-		printf("Cycles Taken:");
-		for(int i=0; i< cyclesDebugLength;i++){
-			if(cyclesDebug[i] == 0){
-
-				break;
-			}
-			printf("%d ", cyclesDebug[i]);
-		}
-
-
-	}*/
-
 
   }
   /* USER CODE END 3 */
@@ -364,135 +288,6 @@ void SystemClock_Config(void)
   {
     Error_Handler();
   }
-}
-
-/**
-  * @brief DFSDM1 Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_DFSDM1_Init(void)
-{
-
-  /* USER CODE BEGIN DFSDM1_Init 0 */
-
-  /* USER CODE END DFSDM1_Init 0 */
-
-  /* USER CODE BEGIN DFSDM1_Init 1 */
-
-  /* USER CODE END DFSDM1_Init 1 */
-  hdfsdm1_filter0.Instance = DFSDM1_Filter0;
-  hdfsdm1_filter0.Init.RegularParam.Trigger = DFSDM_FILTER_SW_TRIGGER;
-  hdfsdm1_filter0.Init.RegularParam.FastMode = ENABLE;
-  hdfsdm1_filter0.Init.RegularParam.DmaMode = ENABLE;
-  hdfsdm1_filter0.Init.FilterParam.SincOrder = DFSDM_FILTER_SINC3_ORDER;
-  hdfsdm1_filter0.Init.FilterParam.Oversampling = 50;
-  hdfsdm1_filter0.Init.FilterParam.IntOversampling = 1;
-  if (HAL_DFSDM_FilterInit(&hdfsdm1_filter0) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  hdfsdm1_channel2.Instance = DFSDM1_Channel2;
-  hdfsdm1_channel2.Init.OutputClock.Activation = ENABLE;
-  hdfsdm1_channel2.Init.OutputClock.Selection = DFSDM_CHANNEL_OUTPUT_CLOCK_SYSTEM;
-  hdfsdm1_channel2.Init.OutputClock.Divider = 100;
-  hdfsdm1_channel2.Init.Input.Multiplexer = DFSDM_CHANNEL_EXTERNAL_INPUTS;
-  hdfsdm1_channel2.Init.Input.DataPacking = DFSDM_CHANNEL_STANDARD_MODE;
-  hdfsdm1_channel2.Init.Input.Pins = DFSDM_CHANNEL_SAME_CHANNEL_PINS;
-  hdfsdm1_channel2.Init.SerialInterface.Type = DFSDM_CHANNEL_SPI_RISING;
-  hdfsdm1_channel2.Init.SerialInterface.SpiClock = DFSDM_CHANNEL_SPI_CLOCK_INTERNAL;
-  hdfsdm1_channel2.Init.Awd.FilterOrder = DFSDM_CHANNEL_FASTSINC_ORDER;
-  hdfsdm1_channel2.Init.Awd.Oversampling = 1;
-  hdfsdm1_channel2.Init.Offset = 0;
-  hdfsdm1_channel2.Init.RightBitShift = 0;
-  if (HAL_DFSDM_ChannelInit(&hdfsdm1_channel2) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  if (HAL_DFSDM_FilterConfigRegChannel(&hdfsdm1_filter0, DFSDM_CHANNEL_2, DFSDM_CONTINUOUS_CONV_ON) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  /* USER CODE BEGIN DFSDM1_Init 2 */
-
-  /* USER CODE END DFSDM1_Init 2 */
-
-}
-
-/**
-  * @brief USART1 Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_USART1_Init(void)
-{
-
-  /* USER CODE BEGIN USART1_Init 0 */
-
-  /* USER CODE END USART1_Init 0 */
-
-  /* USER CODE BEGIN USART1_Init 1 */
-
-  /* USER CODE END USART1_Init 1 */
-  husart1.Instance = USART1;
-  husart1.Init.BaudRate = 115200;
-  husart1.Init.WordLength = USART_WORDLENGTH_8B;
-  husart1.Init.StopBits = USART_STOPBITS_1;
-  husart1.Init.Parity = USART_PARITY_NONE;
-  husart1.Init.Mode = USART_MODE_TX_RX;
-  husart1.Init.CLKPolarity = USART_POLARITY_LOW;
-  husart1.Init.CLKPhase = USART_PHASE_1EDGE;
-  husart1.Init.CLKLastBit = USART_LASTBIT_DISABLE;
-  if (HAL_USART_Init(&husart1) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  /* USER CODE BEGIN USART1_Init 2 */
-
-  /* USER CODE END USART1_Init 2 */
-
-}
-
-/**
-  * Enable DMA controller clock
-  */
-static void MX_DMA_Init(void)
-{
-
-  /* DMA controller clock enable */
-  __HAL_RCC_DMA1_CLK_ENABLE();
-
-  /* DMA interrupt init */
-  /* DMA1_Channel4_IRQn interrupt configuration */
-  HAL_NVIC_SetPriority(DMA1_Channel4_IRQn, 0, 0);
-  HAL_NVIC_EnableIRQ(DMA1_Channel4_IRQn);
-
-}
-
-/**
-  * @brief GPIO Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_GPIO_Init(void)
-{
-  GPIO_InitTypeDef GPIO_InitStruct = {0};
-
-  /* GPIO Ports Clock Enable */
-  __HAL_RCC_GPIOA_CLK_ENABLE();
-  __HAL_RCC_GPIOE_CLK_ENABLE();
-  __HAL_RCC_GPIOB_CLK_ENABLE();
-
-  /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(LED1_GPIO_Port, LED1_Pin, GPIO_PIN_RESET);
-
-  /*Configure GPIO pin : LED1_Pin */
-  GPIO_InitStruct.Pin = LED1_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(LED1_GPIO_Port, &GPIO_InitStruct);
-
 }
 
 /* USER CODE BEGIN 4 */
