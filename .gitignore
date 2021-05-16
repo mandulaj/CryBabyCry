@@ -24,3 +24,6 @@ CryBabyCry/Drivers
 *.list
 
 *.mk
+
+audio_test.py
+*.wav
