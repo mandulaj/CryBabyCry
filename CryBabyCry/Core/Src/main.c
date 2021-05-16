@@ -26,10 +26,13 @@
 #include <stdbool.h>
 #include <string.h>
 
-#define ARM_MATH_CM4
 
 #include "arm_math.h"
 
+#include "config.h"
+#include "helper.h"
+
+#include "MFCC.h"
 #include "CycleCounter.h"
 /* USER CODE END Includes */
 
@@ -72,269 +75,95 @@ static void MX_DFSDM1_Init(void);
 /* USER CODE BEGIN 0 */
 
 
-volatile bool firstHalfFull = false;
-volatile bool secondHalfFull = false;
-
-
-volatile bool filling_disabled = false;
-
-volatile uint32_t buffer_index = 0;
-volatile bool filling_buf1 = true;
-
-#define QUEUELENGTH 2048 //16384*2
-#define PROCESSED_BUF 16384
-#define FFT_LEN 512
-
-int32_t RecBuff[QUEUELENGTH];
-
-int16_t ProcessedBuff1[PROCESSED_BUF];
-int16_t ProcessedBuff2[PROCESSED_BUF];
-int16_t ProcessedBuff3[PROCESSED_BUF/2];
-
-int16_t amplitude;
-
-
-#define cyclesDebugLength 100
-
-int32_t cyclesDebug[cyclesDebugLength];
-int32_t cycles_index = 0;
-
-#ifdef __GNUC__
-/* With GCC/RAISONANCE, small msg_info (option LD Linker->Libraries->Small msg_info
-   set to 'Yes') calls __io_putchar() */
-#define PUTCHAR_PROTOTYPE int __io_putchar(int ch)
-#define GETCHAR_PROTOTYPE int __io_getchar(void)
-#else
-#define PUTCHAR_PROTOTYPE int fputc(int ch, FILE *f)
-#define GETCHAR_PROTOTYPE int fgetc(FILE *f)
-#endif /* __GNUC__ */
-
-PUTCHAR_PROTOTYPE
-{
-  /* Place your implementation of fputc here */
-  /* e.g. write a character to the serial port and Loop until the end of transmission */
-  while (HAL_OK != HAL_USART_Transmit(&husart1, (uint8_t *) &ch, 1, 30000))
-  {
-    ;
-  }
-  return ch;
-}
-
-/**
-  * @brief Retargets the C library scanf function to the USART.
-  * @param None
-  * @retval None
-  */
-GETCHAR_PROTOTYPE
-{
-  /* Place your implementation of fgetc here */
-  /* e.g. readwrite a character to the USART2 and Loop until the end of transmission */
-  uint8_t ch = 0;
-  while (HAL_OK != HAL_USART_Receive(&husart1, (uint8_t *)&ch, 1, 30000))
-  {
-    ;
-  }
-  return ch;
-}
-
-
-
-
-const int16_t qhamming_512[] = {
-		0x0a3d, 0x0a3e, 0x0a41, 0x0a47, 0x0a4f, 0x0a59, 0x0a66, 0x0a75,
-		0x0a86, 0x0a99, 0x0aaf, 0x0ac7, 0x0ae1, 0x0afd, 0x0b1c, 0x0b3d,
-		0x0b60, 0x0b85, 0x0bad, 0x0bd6, 0x0c02, 0x0c31, 0x0c61, 0x0c94,
-		0x0cc8, 0x0cff, 0x0d39, 0x0d74, 0x0db1, 0x0df1, 0x0e33, 0x0e77,
-		0x0ebd, 0x0f05, 0x0f4f, 0x0f9b, 0x0fea, 0x103a, 0x108c, 0x10e1,
-		0x1137, 0x1190, 0x11eb, 0x1247, 0x12a5, 0x1306, 0x1368, 0x13cd,
-		0x1433, 0x149b, 0x1505, 0x1571, 0x15de, 0x164e, 0x16bf, 0x1732,
-		0x17a7, 0x181e, 0x1896, 0x1910, 0x198c, 0x1a0a, 0x1a89, 0x1b0a,
-		0x1b8c, 0x1c10, 0x1c96, 0x1d1d, 0x1da6, 0x1e30, 0x1ebc, 0x1f49,
-		0x1fd8, 0x2068, 0x20fa, 0x218d, 0x2221, 0x22b7, 0x234e, 0x23e6,
-		0x2480, 0x251b, 0x25b7, 0x2654, 0x26f3, 0x2793, 0x2833, 0x28d5,
-		0x2979, 0x2a1d, 0x2ac2, 0x2b68, 0x2c0f, 0x2cb8, 0x2d61, 0x2e0b,
-		0x2eb6, 0x2f61, 0x300e, 0x30bc, 0x316a, 0x3219, 0x32c9, 0x3379,
-		0x342a, 0x34dc, 0x358f, 0x3642, 0x36f5, 0x37a9, 0x385e, 0x3913,
-		0x39c9, 0x3a7f, 0x3b35, 0x3bec, 0x3ca4, 0x3d5b, 0x3e13, 0x3ecb,
-		0x3f84, 0x403c, 0x40f5, 0x41ae, 0x4267, 0x4320, 0x43d9, 0x4493,
-		0x454c, 0x4605, 0x46bf, 0x4778, 0x4831, 0x48ea, 0x49a3, 0x4a5c,
-		0x4b14, 0x4bcc, 0x4c84, 0x4d3c, 0x4df3, 0x4eaa, 0x4f61, 0x5017,
-		0x50cd, 0x5183, 0x5238, 0x52ec, 0x53a0, 0x5453, 0x5506, 0x55b8,
-		0x566a, 0x571b, 0x57cb, 0x587a, 0x5929, 0x59d7, 0x5a84, 0x5b30,
-		0x5bdb, 0x5c86, 0x5d2f, 0x5dd8, 0x5e80, 0x5f26, 0x5fcc, 0x6071,
-		0x6115, 0x61b7, 0x6259, 0x62f9, 0x6398, 0x6436, 0x64d3, 0x656e,
-		0x6609, 0x66a2, 0x6739, 0x67d0, 0x6865, 0x68f8, 0x698b, 0x6a1c,
-		0x6aab, 0x6b39, 0x6bc6, 0x6c51, 0x6cda, 0x6d62, 0x6de9, 0x6e6e,
-		0x6ef1, 0x6f72, 0x6ff2, 0x7071, 0x70ed, 0x7168, 0x71e2, 0x7259,
-		0x72cf, 0x7343, 0x73b5, 0x7426, 0x7494, 0x7501, 0x756c, 0x75d5,
-		0x763c, 0x76a1, 0x7705, 0x7766, 0x77c5, 0x7823, 0x787e, 0x78d8,
-		0x792f, 0x7985, 0x79d8, 0x7a2a, 0x7a79, 0x7ac7, 0x7b12, 0x7b5b,
-		0x7ba2, 0x7be7, 0x7c2a, 0x7c6a, 0x7ca9, 0x7ce5, 0x7d20, 0x7d58,
-		0x7d8e, 0x7dc1, 0x7df3, 0x7e22, 0x7e4f, 0x7e7a, 0x7ea3, 0x7ec9,
-		0x7eee, 0x7f10, 0x7f2f, 0x7f4d, 0x7f68, 0x7f81, 0x7f98, 0x7fac,
-		0x7fbe, 0x7fce, 0x7fdc, 0x7fe7, 0x7ff1, 0x7ff7, 0x7ffc, 0x7ffe,
-		0x7ffe, 0x7ffc, 0x7ff7, 0x7ff1, 0x7fe7, 0x7fdc, 0x7fce, 0x7fbe,
-		0x7fac, 0x7f98, 0x7f81, 0x7f68, 0x7f4d, 0x7f2f, 0x7f10, 0x7eee,
-		0x7ec9, 0x7ea3, 0x7e7a, 0x7e4f, 0x7e22, 0x7df3, 0x7dc1, 0x7d8e,
-		0x7d58, 0x7d20, 0x7ce5, 0x7ca9, 0x7c6a, 0x7c2a, 0x7be7, 0x7ba2,
-		0x7b5b, 0x7b12, 0x7ac7, 0x7a79, 0x7a2a, 0x79d8, 0x7985, 0x792f,
-		0x78d8, 0x787e, 0x7823, 0x77c5, 0x7766, 0x7705, 0x76a1, 0x763c,
-		0x75d5, 0x756c, 0x7501, 0x7494, 0x7426, 0x73b5, 0x7343, 0x72cf,
-		0x7259, 0x71e2, 0x7168, 0x70ed, 0x7071, 0x6ff2, 0x6f72, 0x6ef1,
-		0x6e6e, 0x6de9, 0x6d62, 0x6cda, 0x6c51, 0x6bc6, 0x6b39, 0x6aab,
-		0x6a1c, 0x698b, 0x68f8, 0x6865, 0x67d0, 0x6739, 0x66a2, 0x6609,
-		0x656e, 0x64d3, 0x6436, 0x6398, 0x62f9, 0x6259, 0x61b7, 0x6115,
-		0x6071, 0x5fcc, 0x5f26, 0x5e80, 0x5dd8, 0x5d2f, 0x5c86, 0x5bdb,
-		0x5b30, 0x5a84, 0x59d7, 0x5929, 0x587a, 0x57cb, 0x571b, 0x566a,
-		0x55b8, 0x5506, 0x5453, 0x53a0, 0x52ec, 0x5238, 0x5183, 0x50cd,
-		0x5017, 0x4f61, 0x4eaa, 0x4df3, 0x4d3c, 0x4c84, 0x4bcc, 0x4b14,
-		0x4a5c, 0x49a3, 0x48ea, 0x4831, 0x4778, 0x46bf, 0x4605, 0x454c,
-		0x4493, 0x43d9, 0x4320, 0x4267, 0x41ae, 0x40f5, 0x403c, 0x3f84,
-		0x3ecb, 0x3e13, 0x3d5b, 0x3ca4, 0x3bec, 0x3b35, 0x3a7f, 0x39c9,
-		0x3913, 0x385e, 0x37a9, 0x36f5, 0x3642, 0x358f, 0x34dc, 0x342a,
-		0x3379, 0x32c9, 0x3219, 0x316a, 0x30bc, 0x300e, 0x2f61, 0x2eb6,
-		0x2e0b, 0x2d61, 0x2cb8, 0x2c0f, 0x2b68, 0x2ac2, 0x2a1d, 0x2979,
-		0x28d5, 0x2833, 0x2793, 0x26f3, 0x2654, 0x25b7, 0x251b, 0x2480,
-		0x23e6, 0x234e, 0x22b7, 0x2221, 0x218d, 0x20fa, 0x2068, 0x1fd8,
-		0x1f49, 0x1ebc, 0x1e30, 0x1da6, 0x1d1d, 0x1c96, 0x1c10, 0x1b8c,
-		0x1b0a, 0x1a89, 0x1a0a, 0x198c, 0x1910, 0x1896, 0x181e, 0x17a7,
-		0x1732, 0x16bf, 0x164e, 0x15de, 0x1571, 0x1505, 0x149b, 0x1433,
-		0x13cd, 0x1368, 0x1306, 0x12a5, 0x1247, 0x11eb, 0x1190, 0x1137,
-		0x10e1, 0x108c, 0x103a, 0x0fea, 0x0f9b, 0x0f4f, 0x0f05, 0x0ebd,
-		0x0e77, 0x0e33, 0x0df1, 0x0db1, 0x0d74, 0x0d39, 0x0cff, 0x0cc8,
-		0x0c94, 0x0c61, 0x0c31, 0x0c02, 0x0bd6, 0x0bad, 0x0b85, 0x0b60,
-		0x0b3d, 0x0b1c, 0x0afd, 0x0ae1, 0x0ac7, 0x0aaf, 0x0a99, 0x0a86,
-		0x0a75, 0x0a66, 0x0a59, 0x0a4f, 0x0a47, 0x0a41, 0x0a3e, 0x0a3d
-};
-
-
-
-
-
-
-
-
-
-#define FRAME_LENGTH 400
-
-
-struct CPB{
-	// Contiguous memory for internal memory buffer
-	int16_t _internalBuffer[FRAME_LENGTH + (FRAME_LENGTH/2)];
-	int16_t *full_frame;
-	int16_t *half_frame;
-
-};
-
-
-void CPB_Init(struct CPB *cpb){
-	cpb->full_frame = cpb->_internalBuffer + (FRAME_LENGTH/2);
-	cpb->half_frame = cpb->_internalBuffer;
-}
-
-
-void CPB_copyFull(struct CPB *cpb){
-	memcpy(cpb->half_frame, cpb->full_frame + (FRAME_LENGTH/2), FRAME_LENGTH/2 * sizeof(uint16_t));
-}
 
 
 struct CPB circular_proc_buffer;
 
 
-
-
-
 volatile int ready = 0;
 
+float32_t MFCC_OUT[MFCC_LENGTH][N_FILTS];
+uint32_t MFCC_index = 0;
+volatile bool mfcc_full = false;
+
+int32_t RecBuff[REC_BUF_LENGTH];
 
 
-
-
-
+uint32_t cycles[MFCC_LENGTH];
 
 void HAL_DFSDM_FilterRegConvHalfCpltCallback(DFSDM_Filter_HandleTypeDef *hdfsdm_filter)
 {
 
-	//uint16_t buf = circular_proc_buffer->full_frame;
+//	uint16_t new_input_buf = circular_proc_buffer->full_frame;
 
-	for(uint32_t i = 0; i < QUEUELENGTH/2; i++){
-		ProcessedBuff1[i] = (int16_t)(RecBuff[i]>>8);
+	if(MFCC_index >= MFCC_LENGTH){
+		mfcc_full = true;
+		return;
 	}
 
+	for(uint32_t i = 0; i < REC_BUF_LENGTH/2; i++){
+		circular_proc_buffer.full_frame[i] = (q15_t)(RecBuff[i]>>8);
+	}
 
-	firstHalfFull = true;
+	// Process previous half plus new half
+	ResetTimer();
+	StartTimer();
+	MFCC_Process_Frame(circular_proc_buffer.half_frame, MFCC_OUT[MFCC_index++]);
+	StopTimer();
+	cycles[MFCC_index-1] = getCycles();
+
+	ResetTimer();
+	StartTimer();
+	MFCC_Process_Frame(circular_proc_buffer.full_frame, MFCC_OUT[MFCC_index++]);
+	StopTimer();
+	cycles[MFCC_index-1] = getCycles();
+//
+	CPB_copyFull(&circular_proc_buffer);
+
 	ready++;
 
-
-	//PROCESS(circular_proc_buffer->half_frame);
-
-	//PROCESS(circular_proc_buffer->full_frame);
-
-
-	// Copy end of full_frame to the half frame
-	//CPB_copyFull(&circular_proc_buffer);
-/*
-
-	if(filling_disabled)
-		return;
-
-	if(filling_buf1) {
-		for(uint32_t i = 0; i < QUEUELENGTH/2; i++) {
-			ProcessedBuff1[buffer_index++] = (int16_t)(RecBuff[i]>>8);
-		}
-	} else {
-		for(uint32_t i = 0; i < QUEUELENGTH/2; i++) {
-
-			ProcessedBuff2[buffer_index++] = (int16_t)(RecBuff[i]>>8);
-		}
-	}*/
 }
 
 void HAL_DFSDM_FilterRegConvCpltCallback(DFSDM_Filter_HandleTypeDef *hdfsdm_filter)
 {
 
 
-	for(uint32_t i = QUEUELENGTH/2; i < QUEUELENGTH; i++){
-			ProcessedBuff2[i-QUEUELENGTH/2] = (int16_t)(RecBuff[i]>>8);
+	if(MFCC_index >= MFCC_LENGTH){
+		mfcc_full = true;
+		return;
 	}
-	/*
+
+	for(uint32_t i = REC_BUF_LENGTH/2; i < REC_BUF_LENGTH; i++){
+		circular_proc_buffer.full_frame[i-REC_BUF_LENGTH/2] = (q15_t)(RecBuff[i]>>8);
+	}
+
+	// Process previous half plus new half
+	ResetTimer();
+	StartTimer();
+	MFCC_Process_Frame(circular_proc_buffer.half_frame, MFCC_OUT[MFCC_index++]);
+	StopTimer();
+	cycles[MFCC_index-1] = getCycles();
 
 	ResetTimer();
 	StartTimer();
-	if(filling_disabled)
-			return;
-
-	if(filling_buf1) {
-		for(uint32_t i = QUEUELENGTH/2; i < QUEUELENGTH; i++) {
-			ProcessedBuff1[buffer_index++] = (int16_t)(RecBuff[i]>>8);
-		}
-	} else {
-		for(uint32_t i = QUEUELENGTH/2; i < QUEUELENGTH; i++){
-
-			ProcessedBuff2[buffer_index++] = (int16_t)(RecBuff[i]>>8);
-		}
-	}
-
-	if(buffer_index >= PROCESSED_BUF){
-		if(filling_buf1){
-			firstHalfFull = true;
-		} else {
-			secondHalfFull = true;
-		}
-		filling_buf1= !filling_buf1;
-		buffer_index = 0;
-	}
+	MFCC_Process_Frame(circular_proc_buffer.full_frame, MFCC_OUT[MFCC_index++]);
 	StopTimer();
-	if(cycles_index > cyclesDebugLength){
-		cycles_index = 0;
-	}
-	cyclesDebug[cycles_index++] = getCycles();*/
+	cycles[MFCC_index-1] = getCycles();
+
+	CPB_copyFull(&circular_proc_buffer);
+
+	ready++;
+
 }
 
+static float32_t buff32[FRAME_LENGTH];
+static q31_t bufq31[FRAME_LENGTH];
+static q15_t bufq15[FRAME_LENGTH];
 
-int16_t buffer[FFT_LEN];
-int16_t bufferout[FFT_LEN];
-int16_t bufferout2[FFT_LEN];
+
+
+
+
 /* USER CODE END 0 */
 
 /**
@@ -356,7 +185,7 @@ int main(void)
 
   // Initialize circular processing buffer
   CPB_Init(&circular_proc_buffer);
-
+  MFCC_Init();
   /* USER CODE END Init */
 
   /* Configure the system clock */
@@ -373,8 +202,9 @@ int main(void)
   MX_DFSDM1_Init();
   /* USER CODE BEGIN 2 */
 
-
-  if(HAL_OK != HAL_DFSDM_FilterRegularStart_DMA(&hdfsdm1_filter0, RecBuff, QUEUELENGTH)){
+//  ResetTimer();
+//  StartTimer();
+  if(HAL_OK != HAL_DFSDM_FilterRegularStart_DMA(&hdfsdm1_filter0, RecBuff, REC_BUF_LENGTH)){
 	  Error_Handler();
   }
 
@@ -387,99 +217,59 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-
-//	  if(firstHalfFull){
-//		  int32_t max = -34000;
-//		  for (int i = 0; i < QUEUELENGTH/2; i++){
-//			  int32_t t = ProcessedBuff1[i];
-//			  if(t > max){
-//				  max = t;
-//			  }
-//		  }
-//		  printf("%d\n", max);
-//		  firstHalfFull = true;
-//	  }
-
 /*
-	if(firstHalfFull){
-		printf("First Half:\n");
-		for(int i=0;i<PROCESSED_BUF;i++){
-			printf("%i ",ProcessedBuff1[i]);
-		}
-		firstHalfFull = false;
-	}
+	  arm_rfft_fast_instance_f32  f32_fft_inst;
+	  arm_rfft_fast_init_f32(&f32_fft_inst, FRAME_LENGTH);
+	  arm_rfft_instance_q31  q31_fft_inst;
+	  arm_rfft_instance_q15  q15_fft_inst;
+
+	  arm_rfft_init_q31(&q31_fft_inst, FRAME_LENGTH, 0, 0);
+	  arm_rfft_init_q15(&q15_fft_inst, FRAME_LENGTH, 0, 0);
+
+
+
+		ResetTimer();
+		StartTimer();
+		arm_rfft_fast_f32(&f32_fft_inst, buff32, buff32, 0);
+		StopTimer();
+		printf("FFT f32 %d cycles\n", getCycles());
+
+		ResetTimer();
+		StartTimer();
+		arm_rfft_q31(&q31_fft_inst, bufq31, bufq31);
+		StopTimer();
+		printf("FFT q31 %d cycles\n", getCycles());
+
+		ResetTimer();
+		StartTimer();
+		arm_rfft_q15(&q15_fft_inst, bufq15, bufq15);
+		StopTimer();
+		printf("FFT q15 %d cycles\n", getCycles());
 */
 
-	  if(ready>50){
-		  ResetTimer();
+	  if(mfcc_full){
 
-		  StartTimer();
+//		  StopTimer();
+		  printf("Read %d frames\n", ready);
 
-
-
-		  memcpy(buffer, ProcessedBuff1, FFT_LEN*sizeof(uint16_t));
-
-
-		  printf("Raw input\n");
-		  for(int i = 0; i < FFT_LEN; i++){
-			  printf("%i ", buffer[i]);
+		  for(int i = 0; i < MFCC_LENGTH; i++){
+			  printf("%ld ", cycles[i]);
 		  }
-		  printf("Done\n\n");
-		  /*printf("Input\n");
-		  for(int i = 0; i < FFT_LEN; i++){
-			  printf("%i ", buffer[i]);
-		  }
-		  printf("Done\n\n");*/
+		  printf("\n\n");
+
+//
+//		  for(int i = 0; i< MFCC_LENGTH; i++){
+//			  for(int m = 0; m < N_FILTS; m++){
+//				  printf("%f ", MFCC_OUT[i][m]);
+//
+//			  }
+//			  printf("\n");
+//		  }
 
 
-		  // Amplify signal by 8
-		  arm_shift_q15(buffer, 3, buffer, FFT_LEN);
-
-		  printf("Amplified input\n");
-		  for(int i = 0; i < FFT_LEN; i++){
-			  printf("%i ", buffer[i]);
-		  }
-		  printf("Done\n\n");
-
-		  // Hamming scaling
-		  arm_mult_q15(buffer, qhamming_512, buffer, FFT_LEN);
-
-		  printf("Scaled input\n");
-		  for(int i = 0; i < FFT_LEN; i++){
-			  printf("%i ", buffer[i]);
-		  }
-		  printf("Done\n\n");
-
-		  // FFT
-		  arm_rfft_instance_q15  fft_inst;
-		  arm_rfft_init_q15(&fft_inst, FFT_LEN, 0, 0);
-		  arm_rfft_q15(&fft_inst, buffer, bufferout);
-
-		  printf("Raw FFT\n");
-		  for(int i = 0; i < FFT_LEN; i++){
-			  printf("%i ", bufferout[i]);
-		  }
-		  printf("Done\n\n");
-		  // Shift FFT to avoid loosing lower bits
-		  arm_shift_q15(bufferout, 6, bufferout, FFT_LEN);
-
-		  printf("Shifted FFT\n");
-		  for(int i = 0; i < FFT_LEN; i++){
-			  printf("%i ", bufferout[i]);
-		  }
-		  printf("Done\n\n");
-		  // Compute magnitude squared (faster than just magnitude)
-		  arm_cmplx_mag_squared_q15(bufferout, bufferout, FFT_LEN/2);
-		  StopTimer();
-
-		  printf("Cycles: %d\n", getCycles());
 
 
-		  printf("Output\n");
-		  for(int i = 0; i < FFT_LEN/2; i++){
-			  printf("%i ", bufferout[i]);
-		  }
-		  printf("Done\n\n");
+
 
 
 /*

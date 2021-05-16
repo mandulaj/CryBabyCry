@@ -1,9 +1,10 @@
+#include "stm32l4xx_hal.h"
+
+
 #ifndef CYCLECOUNTER
 #define CYCLECOUNTER
 
-static volatile unsigned int *DWT_CYCCNT  ;
-static volatile unsigned int *DWT_CONTROL ;
-static volatile unsigned int *SCB_DEMCR   ;
+
 
 // Resets the internal cycle counter to zero
 void ResetTimer(void);

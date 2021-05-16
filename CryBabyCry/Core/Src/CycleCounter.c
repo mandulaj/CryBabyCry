@@ -1,5 +1,11 @@
 #include "CycleCounter.h"
 
+
+static volatile unsigned int *DWT_CYCCNT  ;
+static volatile unsigned int *DWT_CONTROL ;
+static volatile unsigned int *SCB_DEMCR   ;
+
+
 void ResetTimer(){
 	DWT_CYCCNT   = (unsigned int *)0xE0001004; //address of the register
 	DWT_CONTROL  = (unsigned int *)0xE0001000; //address of the register

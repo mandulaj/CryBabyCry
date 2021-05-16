@@ -62,7 +62,7 @@ main-build: CryBabyCry.elf secondary-outputs
 
 # Tool invocations
 CryBabyCry.elf: $(OBJS) $(USER_OBJS) /home/jakub/Documents/Personal/Uni/ETH/2021_MLMCU/Project/CryBabyCry/STM32L475VGTX_FLASH.ld makefile objects.list $(OPTIONAL_TOOL_DEPS)
-	arm-none-eabi-gcc -o "CryBabyCry.elf" @"objects.list" $(USER_OBJS) $(LIBS) -mcpu=cortex-m4 -T"/home/jakub/Documents/Personal/Uni/ETH/2021_MLMCU/Project/CryBabyCry/STM32L475VGTX_FLASH.ld" --specs=nosys.specs -Wl,-Map="CryBabyCry.map" -Wl,--gc-sections -static -Wl,--start-group -larm_cortexM4lf_math -Wl,--end-group -L"/home/jakub/Documents/Personal/Uni/ETH/2021_MLMCU/Project/CryBabyCry/libs" --specs=nano.specs -mfpu=fpv4-sp-d16 -mfloat-abi=hard -mthumb -Wl,--start-group -lc -lm -Wl,--end-group
+	arm-none-eabi-gcc -o "CryBabyCry.elf" @"objects.list" $(USER_OBJS) $(LIBS) -mcpu=cortex-m4 -T"/home/jakub/Documents/Personal/Uni/ETH/2021_MLMCU/Project/CryBabyCry/STM32L475VGTX_FLASH.ld" --specs=nosys.specs -Wl,-Map="CryBabyCry.map" -Wl,--gc-sections -static -Wl,--start-group -larm_cortexM4lf_math -Wl,--end-group -L"/home/jakub/Documents/Personal/Uni/ETH/2021_MLMCU/Project/CryBabyCry/libs" --specs=nano.specs -mfpu=fpv4-sp-d16 -mfloat-abi=hard -mthumb -u _printf_float -Wl,--start-group -lc -lm -Wl,--end-group
 	@echo 'Finished building target: $@'
 	@echo ' '
 
