@@ -54,7 +54,7 @@ void MFCC_Process_Frame(q15_t *inputBuf, float32_t *mfcc_out){
 	  arm_rfft_fast_f32(&f32_fft_inst, Process_work_buffer, Process_fft_output, 0);
 
 	  // Compute magnitude
-	  arm_cmplx_mag_squared_f32(Process_fft_output, Process_fft_output, FRAME_LENGTH/2);
+	  arm_cmplx_mag_f32(Process_fft_output, Process_fft_output, FRAME_LENGTH/2);
 
 
 	  const uint32_t bins[] = {
