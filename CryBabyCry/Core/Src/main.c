@@ -90,7 +90,8 @@ void HAL_DFSDM_FilterRegConvHalfCpltCallback(DFSDM_Filter_HandleTypeDef *hdfsdm_
 {
 
 //	uint16_t new_input_buf = circular_proc_buffer->full_frame;
-
+	ResetTimer();
+	StartTimer();
 	if(MFCC_index >= MFCC_LENGTH){
 		mfcc_full = true;
 		return;
@@ -101,27 +102,23 @@ void HAL_DFSDM_FilterRegConvHalfCpltCallback(DFSDM_Filter_HandleTypeDef *hdfsdm_
 	}
 
 	// Process previous half plus new half
-	ResetTimer();
-	StartTimer();
-	MFCC_Process_Frame(circular_proc_buffer.half_frame, MFCC_OUT[MFCC_index++]);
-	StopTimer();
-	cycles[MFCC_index-1] = getCycles();
+	// 72778 Cycles -Ofast 85543 cycles -Og
 
-	ResetTimer();
-	StartTimer();
+	MFCC_Process_Frame(circular_proc_buffer.half_frame, MFCC_OUT[MFCC_index++]);
 	MFCC_Process_Frame(circular_proc_buffer.full_frame, MFCC_OUT[MFCC_index++]);
-	StopTimer();
-	cycles[MFCC_index-1] = getCycles();
-//
+
 	CPB_copyFull(&circular_proc_buffer);
 
 	ready++;
+	StopTimer();
+	cycles[MFCC_index-1] = getCycles();
 
 }
 
 void HAL_DFSDM_FilterRegConvCpltCallback(DFSDM_Filter_HandleTypeDef *hdfsdm_filter)
 {
-
+	ResetTimer();
+	StartTimer();
 
 	if(MFCC_index >= MFCC_LENGTH){
 		mfcc_full = true;
@@ -133,22 +130,17 @@ void HAL_DFSDM_FilterRegConvCpltCallback(DFSDM_Filter_HandleTypeDef *hdfsdm_filt
 	}
 
 	// Process previous half plus new half
-	ResetTimer();
-	StartTimer();
-	MFCC_Process_Frame(circular_proc_buffer.half_frame, MFCC_OUT[MFCC_index++]);
-	StopTimer();
-	cycles[MFCC_index-1] = getCycles();
 
-	ResetTimer();
-	StartTimer();
+	MFCC_Process_Frame(circular_proc_buffer.half_frame, MFCC_OUT[MFCC_index++]);
 	MFCC_Process_Frame(circular_proc_buffer.full_frame, MFCC_OUT[MFCC_index++]);
-	StopTimer();
-	cycles[MFCC_index-1] = getCycles();
+
 
 	CPB_copyFull(&circular_proc_buffer);
 
 	ready++;
 
+	StopTimer();
+	cycles[MFCC_index-1] = getCycles();
 }
 
 
