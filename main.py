@@ -21,6 +21,15 @@ import matplotlib
 
 DATA_FOLDER="./data"
 
+N_FILTS=60
+FFT_SKIP=256
+FFT_SIZE=512
+N_FRAMES = 128
+
+SF=16000
+SAMPLE_LENGTH=N_FRAMES/2 * FFT_SIZE
+
+
 SF=8000
 
 SPLIT=0.8
@@ -83,7 +92,7 @@ def get_audio_file_categories(path):
     return categories
 
 
-def load_data(categories, new_rate=8000):
+def load_data(categories, new_rate=16000):
     cat_data = {}
     for cat, paths in categories.items():
         audio_data = []
@@ -172,8 +181,8 @@ def get_mfcc():
 
     for k in data:
         for i, s in tqdm.tqdm(enumerate(data[k])):
-            data[k][i] = librosa.feature.mfcc(data[k][i], sr=SF, n_mfcc=60)
-
+            # data[k][i] = librosa.feature.mfcc(data[k][i], sr=SF, n_mfcc=60)
+            data[k][i] = librosa.feature.melspectrogram(data[k][i], sr=SR, n_fft=FFT_SIZE, hop_length=FFT_SKIP,n_mels=N_FILTS)[:,1:]
 
     return data
     
