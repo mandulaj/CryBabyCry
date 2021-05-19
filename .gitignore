@@ -15,7 +15,8 @@ __pycache__
 
 CryBabyCry/Middlewares/
 CryBabyCry/Drivers
-
+CryBabyCry/Debug
+CryBabyCry/Release
 
 *.su
 *.d
@@ -27,3 +28,6 @@ CryBabyCry/Drivers
 
 audio_test.py
 *.wav
+
+.ai
+

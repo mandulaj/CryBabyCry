@@ -32,7 +32,7 @@ ENTRY(Reset_Handler)
 _estack = ORIGIN(RAM) + LENGTH(RAM);	/* end of "RAM" Ram type memory */
 
 _Min_Heap_Size = 0x0 ;	/* required amount of heap  */
-_Min_Stack_Size = 0x400 ;	/* required amount of stack */
+_Min_Stack_Size = 0x1000 ;	/* required amount of stack */
 
 /* Memories definition */
 MEMORY
@@ -166,6 +166,15 @@ SECTIONS
     . = . + _Min_Stack_Size;
     . = ALIGN(8);
   } >RAM2
+  
+    .ram2_bss :
+  {
+  	. = ALIGN(4);
+  	*(.ram2_bss)           /* .data sections */
+    *(.ram2_bss*)          /* .data* sections */
+  	
+  } >RAM2
+  
 
   /* Remove information from the compiler libraries */
   /DISCARD/ :
