@@ -101,7 +101,8 @@ void HAL_DFSDM_FilterRegConvCpltCallback(DFSDM_Filter_HandleTypeDef *hdfsdm_filt
 /* USER CODE END 0 */
 
 /**
-  * @brief  The application entry point.
+  * @brief  The applstatic q15_t MFCC_OUT[MFCC_LENGTH][N_FILTS];
+  * ication entry point.
   * @retval int
   */
 int main(void)
