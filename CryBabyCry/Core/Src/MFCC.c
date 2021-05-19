@@ -80,7 +80,6 @@ void MFCC_Process_Frame(q15_t *inputBuf, q15_t *mfcc_out){
 
 
 
-
 	  memset(output, 0, N_FILTS*sizeof(*output));
 
 	  /* For each filter */
@@ -95,13 +94,18 @@ void MFCC_Process_Frame(q15_t *inputBuf, q15_t *mfcc_out){
 					  (float32_t)(k - MFCC_bins[m - 1])/(float32_t)(MFCC_bins[m] - MFCC_bins[m - 1]);
 		  }
 
-		  // Upper half of wighted bin
+		  // Upper half of weighted bin
 		  for(uint32_t k = f_m; k < f_m_plus; k++){
 			  output[m-1] += Process_fft_output[k] *
 					  (float32_t)(MFCC_bins[m + 1] - k)/(float32_t)(MFCC_bins[m + 1] - MFCC_bins[m]);
 		  }
 
 	  }
+
+//	  float32_t mean;
+//	  arm_mean_f32(output, N_FILTS, &mean);
+
+
 
 #ifdef MFCC_Q15
 	  // Convert the float into q15
