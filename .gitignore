@@ -31,3 +31,6 @@ audio_test.py
 
 .ai
 
+
+*.launch
+*.prefs
