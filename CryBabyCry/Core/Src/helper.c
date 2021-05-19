@@ -4,7 +4,7 @@
 #include <stdio.h>
 #include "stm32l4xx_hal.h"
 #include <stdarg.h>
-
+#include "FreeRTOS.h"
 
 extern USART_HandleTypeDef husart1;
 
@@ -106,3 +106,11 @@ void USART1_printf(char *fmt, ...){
 //  }
 //  return ch;
 //}
+
+void* __wrap_malloc(uint32_t size){
+	return pvPortMalloc(size);
+}
+
+void __wrap_free(void* ptr){
+	vPortFree(ptr);
+}

@@ -36,6 +36,13 @@
 #include "CycleCounter.h"
 #include "dfsdm.h"
 #include "dma.h"
+#include "tim.h"
+
+
+#include "ai_datatypes_defines.h"
+#include "ai_platform.h"
+#include "test_network_model.h"
+#include "test_network_model_data.h"
 
 /* USER CODE END Includes */
 
@@ -66,7 +73,7 @@ extern int32_t RecBuff[REC_BUF_LENGTH];
 static uint32_t cycles[MFCC_LENGTH];
 
 #ifdef MFCC_FLOAT
-static float32_t MFCC_Buffer1[MFCC_LENGTH][N_FILTS];
+static float32_t MFCC_Buffer1[MFCC_LENGTH][N_FILTS] __attribute__((section(".ram2_bss")));
 static float32_t MFCC_Buffer2[MFCC_LENGTH][N_FILTS];
 
 static float32_t *pMFCC_Buff;
@@ -100,7 +107,7 @@ const osThreadAttr_t audio_preproces_attributes = {
 osThreadId_t nn_inferenceHandle;
 const osThreadAttr_t nn_inference_attributes = {
   .name = "nn_inference",
-  .stack_size = 512 * 4,
+  .stack_size = 3900 * 4,
   .priority = (osPriority_t) osPriorityLow,
 };
 
@@ -282,6 +289,57 @@ void vTask_nn_inference(void *argument)
 
 	uint32_t buffer_counter = 0;
 
+	ai_error ai_err;
+	ai_i32 nbatch;
+
+	AI_ALIGNED(4) ai_u8 activations[AI_TEST_NETWORK_MODEL_DATA_ACTIVATIONS_SIZE];
+
+	AI_ALIGNED(4) ai_i8 in_data[AI_TEST_NETWORK_MODEL_IN_1_SIZE_BYTES];
+	AI_ALIGNED(4) ai_i8 out_data[AI_TEST_NETWORK_MODEL_OUT_1_SIZE_BYTES];
+
+	ai_handle test_model = AI_HANDLE_NULL;
+
+	ai_buffer ai_input[AI_TEST_NETWORK_MODEL_IN_NUM] = AI_TEST_NETWORK_MODEL_IN;
+	ai_buffer ai_output[AI_TEST_NETWORK_MODEL_OUT_NUM] = AI_TEST_NETWORK_MODEL_OUT;
+
+	ai_network_params ai_params = {
+			AI_TEST_NETWORK_MODEL_DATA_WEIGHTS(ai_test_network_model_data_weights_get()),
+			AI_TEST_NETWORK_MODEL_DATA_ACTIVATIONS(activations)
+	};
+
+	ai_input[0].n_batches = 1;
+	ai_input[0].data = AI_HANDLE_PTR(in_data);
+	ai_output[0].n_batches = 1;
+	ai_output[0].data = AI_HANDLE_PTR(out_data);
+
+	ai_err = ai_test_network_model_create(&test_model, AI_TEST_NETWORK_MODEL_DATA_CONFIG);
+	if(ai_err.type != AI_ERROR_NONE){
+		USART1_printf("Error, could not create NN instance\n");
+		vTaskSuspend(NULL);
+	}
+
+	if(!ai_test_network_model_init(test_model, &ai_params)){
+		USART1_printf("Error, could not init NN\n");
+		vTaskSuspend(NULL);
+	}
+
+	HAL_TIM_Base_Start(&htim16);
+	uint32_t timestamp = htim16.Instance->CNT;
+
+
+	nbatch  = ai_test_network_model_run(test_model, ai_input, ai_output);
+	if (nbatch != 1) {
+		USART1_printf("Error, could not run NN inference\n");
+		vTaskSuspend(NULL);
+	}
+
+	uint8_t a,b;
+
+	a = out_data[0];
+	b = out_data[1];
+
+	USART1_printf("a: %d b: %d Time (us): %d\n", a, b, htim16.Instance->CNT - timestamp);
+	USART1_printf("Stack: %ld", uxTaskGetStackHighWaterMark(NULL));
 
 	/* Infinite loop */
 	for(;;)
