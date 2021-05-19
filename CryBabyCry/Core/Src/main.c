@@ -37,6 +37,7 @@
 #include "config.h"
 #include "helper.h"
 
+#include "FreeRTOS.h"
 #include "MFCC.h"
 #include "CycleCounter.h"
 /* USER CODE END Includes */
@@ -72,77 +73,27 @@ void MX_FREERTOS_Init(void);
 /* USER CODE BEGIN 0 */
 
 
-
-
-struct CPB circular_proc_buffer;
-
-
-volatile int ready = 0;
-
-float32_t MFCC_OUT[MFCC_LENGTH][N_FILTS];
-uint32_t MFCC_index = 0;
-volatile bool mfcc_full = false;
+extern osThreadId_t audio_preprocesHandle;
 
 int32_t RecBuff[REC_BUF_LENGTH];
 
 
-uint32_t cycles[MFCC_LENGTH];
+
 
 void HAL_DFSDM_FilterRegConvHalfCpltCallback(DFSDM_Filter_HandleTypeDef *hdfsdm_filter)
 {
+	BaseType_t xHigherPriorityTaskWoken = pdFALSE;
 
-//	uint16_t new_input_buf = circular_proc_buffer->full_frame;
-	ResetTimer();
-	StartTimer();
-	if(MFCC_index >= MFCC_LENGTH){
-		mfcc_full = true;
-		return;
-	}
-
-	for(uint32_t i = 0; i < REC_BUF_LENGTH/2; i++){
-		circular_proc_buffer.full_frame[i] = (q15_t)(RecBuff[i]>>8);
-	}
-
-	// Process previous half plus new half
-	// 72778 Cycles -Ofast 85543 cycles -Og
-
-	MFCC_Process_Frame(circular_proc_buffer.half_frame, MFCC_OUT[MFCC_index++]);
-	MFCC_Process_Frame(circular_proc_buffer.full_frame, MFCC_OUT[MFCC_index++]);
-
-	CPB_copyFull(&circular_proc_buffer);
-
-	ready++;
-	StopTimer();
-	cycles[MFCC_index-1] = getCycles();
-
+	xTaskNotifyFromISR(audio_preprocesHandle, 1, eSetValueWithOverwrite, &xHigherPriorityTaskWoken);
+	portYIELD_FROM_ISR( xHigherPriorityTaskWoken );
 }
 
 void HAL_DFSDM_FilterRegConvCpltCallback(DFSDM_Filter_HandleTypeDef *hdfsdm_filter)
 {
-	ResetTimer();
-	StartTimer();
+	BaseType_t xHigherPriorityTaskWoken = pdFALSE;
 
-	if(MFCC_index >= MFCC_LENGTH){
-		mfcc_full = true;
-		return;
-	}
-
-	for(uint32_t i = REC_BUF_LENGTH/2; i < REC_BUF_LENGTH; i++){
-		circular_proc_buffer.full_frame[i-REC_BUF_LENGTH/2] = (q15_t)(RecBuff[i]>>8);
-	}
-
-	// Process previous half plus new half
-
-	MFCC_Process_Frame(circular_proc_buffer.half_frame, MFCC_OUT[MFCC_index++]);
-	MFCC_Process_Frame(circular_proc_buffer.full_frame, MFCC_OUT[MFCC_index++]);
-
-
-	CPB_copyFull(&circular_proc_buffer);
-
-	ready++;
-
-	StopTimer();
-	cycles[MFCC_index-1] = getCycles();
+	xTaskNotifyFromISR(audio_preprocesHandle, 2, eSetValueWithOverwrite, &xHigherPriorityTaskWoken);
+	portYIELD_FROM_ISR( xHigherPriorityTaskWoken );
 }
 
 
@@ -166,9 +117,7 @@ int main(void)
 
   /* USER CODE BEGIN Init */
 
-  // Initialize circular processing buffer
-  CPB_Init(&circular_proc_buffer);
-  MFCC_Init();
+
   /* USER CODE END Init */
 
   /* Configure the system clock */
@@ -184,12 +133,6 @@ int main(void)
   MX_USART1_Init();
   MX_DFSDM1_Init();
   /* USER CODE BEGIN 2 */
-
-//  ResetTimer();
-//  StartTimer();
-  if(HAL_OK != HAL_DFSDM_FilterRegularStart_DMA(&hdfsdm1_filter0, RecBuff, REC_BUF_LENGTH)){
-	  Error_Handler();
-  }
 
   /* USER CODE END 2 */
 
@@ -207,30 +150,6 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-
-	  if(mfcc_full){
-
-//		  StopTimer();
-		  printf("Read %d frames\n", ready);
-
-		  for(int i = 0; i < MFCC_LENGTH; i++){
-			  printf("%ld ", cycles[i]);
-		  }
-		  printf("\n\n");
-
-
-		  for(int i = 0; i< MFCC_LENGTH; i++){
-			  for(int m = 0; m < N_FILTS; m++){
-				  printf("%f ", MFCC_OUT[i][m]);
-
-			  }
-			  printf("\n");
-		  }
-
-
-		  while(1){}
-	  }
-
   }
   /* USER CODE END 3 */
 }
