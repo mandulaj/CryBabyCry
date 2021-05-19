@@ -13,5 +13,11 @@
 #define REC_BUF_LENGTH (2*FRAME_LENGTH)
 
 
+// MFCC Type
+#define MFCC_FLOAT
+#ifndef MFCC_FLOAT
+#define MFCC_Q15
+#endif
+
 
 #endif

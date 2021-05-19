@@ -64,7 +64,12 @@ extern int32_t RecBuff[REC_BUF_LENGTH];
 
 
 static uint32_t cycles[MFCC_LENGTH];
+
+#ifdef MFCC_FLOAT
 static float32_t MFCC_OUT[MFCC_LENGTH][N_FILTS];
+#elif defined(MFCC_Q15)
+static q15_t MFCC_OUT[MFCC_LENGTH][N_FILTS];
+#endif
 static struct CPB cpb_struct;
 
 
@@ -176,7 +181,11 @@ void StartDefaultTask(void *argument)
 
 		for(int i = 0; i< MFCC_LENGTH; i++){
 			for(int m = 0; m < N_FILTS; m++){
+#ifdef MFCC_FLOAT
 				printf("%f ", MFCC_OUT[i][m]);
+#elif defined(MFCC_Q15)
+				printf("%i ", MFCC_OUT[i][m]);
+#endif
 
 			}
 			printf("\n");
@@ -216,28 +225,27 @@ void vTask_audio_preproces(void *argument)
 		ResetTimer();
 		StartTimer();
 
-
-		if(ulNotifiedValue == 1) {
-			// Copy Lower half of REC_BUF
-			for(uint32_t i = 0; i < REC_BUF_LENGTH/2; i++){
-				cpb->full_frame[i] = (q15_t)(RecBuff[i] >> 8);
-			}
+		int32_t *pRecBuff;
+		if(ulNotifiedValue == 1){
+			pRecBuff = RecBuff;
 		} else if(ulNotifiedValue == 2){
-			// Copy Upper half of REC_BUF
-			for(uint32_t i = 0; i < REC_BUF_LENGTH/2; i++){
-				cpb->full_frame[i] = (q15_t)(RecBuff[i+REC_BUF_LENGTH/2] >> 8);
-			}
+			pRecBuff = RecBuff + FRAME_LENGTH;
 		} else {
-			// Need to throw error
 			continue;
 		}
 
+		// Read new data into
+		for(uint32_t i = 0; i < FRAME_LENGTH; i++){
+			cpb->full_frame[i] = (q15_t)(pRecBuff[i] >> 8);
+		}
+
+
 		// Process previous half plus new half
 		// 72778 Cycles -Ofast 85543 cycles -Og
-
 		MFCC_Process_Frame(cpb->half_frame, MFCC_OUT[MFCC_index++]);
 		MFCC_Process_Frame(cpb->full_frame, MFCC_OUT[MFCC_index++]);
 
+		// Swap buffers
 		CPB_copyFull(cpb);
 		StopTimer();
 		cycles[MFCC_index-1] = getCycles();
