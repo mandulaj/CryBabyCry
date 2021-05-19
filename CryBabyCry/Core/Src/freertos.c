@@ -66,9 +66,16 @@ extern int32_t RecBuff[REC_BUF_LENGTH];
 static uint32_t cycles[MFCC_LENGTH];
 
 #ifdef MFCC_FLOAT
-static float32_t MFCC_OUT[MFCC_LENGTH][N_FILTS];
+static float32_t MFCC_Buffer1[MFCC_LENGTH][N_FILTS];
+static float32_t MFCC_Buffer2[MFCC_LENGTH][N_FILTS];
+
+static float32_t *pMFCC_Buff;
 #elif defined(MFCC_Q15)
-static q15_t MFCC_OUT[MFCC_LENGTH][N_FILTS];
+static q15_t MFCC_Buffer1[MFCC_LENGTH][N_FILTS];
+static q15_t MFCC_Buffer2[MFCC_LENGTH][N_FILTS];
+
+static q15_t *pMFCC_Buff;
+
 #endif
 static struct CPB cpb_struct;
 
@@ -79,15 +86,22 @@ static struct CPB cpb_struct;
 osThreadId_t defaultTaskHandle;
 const osThreadAttr_t defaultTask_attributes = {
   .name = "defaultTask",
-  .stack_size = 128 * 4,
+  .stack_size = 512 * 4,
   .priority = (osPriority_t) osPriorityNormal,
 };
 /* Definitions for audio_preproces */
 osThreadId_t audio_preprocesHandle;
 const osThreadAttr_t audio_preproces_attributes = {
   .name = "audio_preproces",
-  .stack_size = 400 * 4,
+  .stack_size = 512 * 4,
   .priority = (osPriority_t) osPriorityNormal7,
+};
+/* Definitions for nn_inference */
+osThreadId_t nn_inferenceHandle;
+const osThreadAttr_t nn_inference_attributes = {
+  .name = "nn_inference",
+  .stack_size = 512 * 4,
+  .priority = (osPriority_t) osPriorityLow,
 };
 
 /* Private function prototypes -----------------------------------------------*/
@@ -97,6 +111,7 @@ const osThreadAttr_t audio_preproces_attributes = {
 
 void StartDefaultTask(void *argument);
 void vTask_audio_preproces(void *argument);
+void vTask_nn_inference(void *argument);
 
 void MX_FREERTOS_Init(void); /* (MISRA C 2004 rule 8.1) */
 
@@ -110,6 +125,10 @@ void MX_FREERTOS_Init(void) {
 	// Initialize circular processing buffer
 	CPB_Init(&cpb_struct);
 	MFCC_Init();
+
+	// Set pointer to first MFCC buffer
+	pMFCC_Buff = (float32_t*)MFCC_Buffer1;
+
 
   /* USER CODE END Init */
 
@@ -136,6 +155,9 @@ void MX_FREERTOS_Init(void) {
   /* creation of audio_preproces */
   audio_preprocesHandle = osThreadNew(vTask_audio_preproces, NULL, &audio_preproces_attributes);
 
+  /* creation of nn_inference */
+  nn_inferenceHandle = osThreadNew(vTask_nn_inference, NULL, &nn_inference_attributes);
+
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
   /* USER CODE END RTOS_THREADS */
@@ -156,44 +178,29 @@ void MX_FREERTOS_Init(void) {
 void StartDefaultTask(void *argument)
 {
   /* USER CODE BEGIN StartDefaultTask */
-	uint32_t ulNotifiedValue;
+
 
 	// Start the Microphone Filtering
 	if(HAL_OK != HAL_DFSDM_FilterRegularStart_DMA(&hdfsdm1_filter0, RecBuff, REC_BUF_LENGTH)){
 	  Error_Handler();
 	}
 
-
-	/* Infinite loop */
-	for(;;)
-	{
+	uint32_t ulNotifiedValue;
+	while(1){
 		xTaskNotifyWait(0x00, ULONG_MAX, &ulNotifiedValue, portMAX_DELAY);
-		vTaskSuspend(audio_preprocesHandle);
 
-		printf("Main\n");
+		USART1_printf("Stack water marks:\n");
+		USART1_printf("audio_preprocessing: %ld\n", uxTaskGetStackHighWaterMark( audio_preprocesHandle ));
+		USART1_printf("nn_inference:        %ld\n", uxTaskGetStackHighWaterMark( nn_inferenceHandle ));
 
-
-		for(int i = 0; i < MFCC_LENGTH; i++){
-			printf("%ld ", cycles[i]);
-		}
-		printf("\n\n");
+//		USART1_printf("%f\n", RecBuff[0]/0.3);
+		USART1_printf("default:             %ld\n", uxTaskGetStackHighWaterMark( NULL ));
 
 
-		for(int i = 0; i< MFCC_LENGTH; i++){
-			for(int m = 0; m < N_FILTS; m++){
-#ifdef MFCC_FLOAT
-				printf("%f ", MFCC_OUT[i][m]);
-#elif defined(MFCC_Q15)
-				printf("%i ", MFCC_OUT[i][m]);
-#endif
-
-			}
-			printf("\n");
-		}
-
-		vTaskSuspend(NULL);
-
+		osDelay(1);
 	}
+
+
   /* USER CODE END StartDefaultTask */
 }
 
@@ -221,7 +228,7 @@ void vTask_audio_preproces(void *argument)
 		// Wait for the IRS to trigger the processing
 		xTaskNotifyWait(0x00, ULONG_MAX, &ulNotifiedValue, portMAX_DELAY);
 
-		printf("Task Started: %lx\n", ulNotifiedValue);
+		//printf("Task Started: %lx\n", ulNotifiedValue);
 		ResetTimer();
 		StartTimer();
 
@@ -242,8 +249,8 @@ void vTask_audio_preproces(void *argument)
 
 		// Process previous half plus new half
 		// 72778 Cycles -Ofast 85543 cycles -Og
-		MFCC_Process_Frame(cpb->half_frame, MFCC_OUT[MFCC_index++]);
-		MFCC_Process_Frame(cpb->full_frame, MFCC_OUT[MFCC_index++]);
+		MFCC_Process_Frame(cpb->half_frame, &pMFCC_Buff[(MFCC_index++) * N_FILTS]);
+		MFCC_Process_Frame(cpb->full_frame, &pMFCC_Buff[(MFCC_index++) * N_FILTS]);
 
 		// Swap buffers
 		CPB_copyFull(cpb);
@@ -254,10 +261,88 @@ void vTask_audio_preproces(void *argument)
 		// MFCC Buffer is full
 		if(MFCC_index >= MFCC_LENGTH){
 			MFCC_index = 0;
-			xTaskNotify(defaultTaskHandle, 0, eSetValueWithOverwrite);
+			xTaskNotify(nn_inferenceHandle, 0, eSetValueWithOverwrite);
 		}
 	}
   /* USER CODE END vTask_audio_preproces */
+}
+
+/* USER CODE BEGIN Header_vTask_nn_inference */
+/**
+* @brief Function implementing the nn_inference thread.
+* @param argument: Not used
+* @retval None
+*/
+/* USER CODE END Header_vTask_nn_inference */
+void vTask_nn_inference(void *argument)
+{
+  /* USER CODE BEGIN vTask_nn_inference */
+  /* Infinite loop */
+	uint32_t ulNotifiedValue;
+
+	uint32_t buffer_counter = 0;
+
+
+	/* Infinite loop */
+	for(;;)
+	{
+		xTaskNotifyWait(0x00, ULONG_MAX, &ulNotifiedValue, portMAX_DELAY);
+		buffer_counter++;
+		// Swap the buffer pointers
+		if((void*)pMFCC_Buff == (void*)MFCC_Buffer1){
+			pMFCC_Buff = (float32_t*)MFCC_Buffer2;
+		} else {
+			pMFCC_Buff = (float32_t*)MFCC_Buffer1;
+		}
+		USART1_printf("Swap %ld\n", buffer_counter);
+
+
+
+		if(buffer_counter >= 2){
+			vTaskSuspend(audio_preprocesHandle);
+
+			USART1_printf("Cycle counts: \n");
+			for(int i = 0; i < MFCC_LENGTH; i++){
+				USART1_printf("%ld ", cycles[i]);
+			}
+			USART1_printf("\n\nBuffer 1:\n");
+
+			for(int i = 0; i< MFCC_LENGTH; i++){
+				for(int m = 0; m < N_FILTS; m++){
+#ifdef MFCC_FLOAT
+					USART1_printf("%f ", MFCC_Buffer1[i][m]);
+
+#elif defined(MFCC_Q15)
+					USART1_printf("%i ", MFCC_Buffer1[i][m]);
+#endif
+
+				}
+				USART1_printf("\n");
+
+			}
+			USART1_printf("\n\nBuffer 2:\n");
+			for(int i = 0; i< MFCC_LENGTH; i++){
+				for(int m = 0; m < N_FILTS; m++){
+#ifdef MFCC_FLOAT
+					USART1_printf("%f ", MFCC_Buffer2[i][m]);
+
+#elif defined(MFCC_Q15)
+					USART1_printf("%i ", MFCC_Buffer2[i][m]);
+#endif
+
+				}
+				USART1_printf("\n");
+
+			}
+
+
+			xTaskNotify(defaultTaskHandle, 0, eSetValueWithOverwrite);
+
+
+//			vTaskSuspend(NULL);
+		}
+	}
+  /* USER CODE END vTask_nn_inference */
 }
 
 /* Private application code --------------------------------------------------*/

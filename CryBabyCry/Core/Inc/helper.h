@@ -25,8 +25,7 @@ void print_buffer_q31(q31_t *buf, uint32_t len);
 void print_buffer_q15(q15_t *buf, uint32_t len);
 
 
-
-
+void USART1_printf(char *fmt, ...);
 
 
 
