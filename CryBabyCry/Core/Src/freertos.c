@@ -26,6 +26,7 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include <stdio.h>
 
 /* USER CODE END Includes */
 
@@ -55,6 +56,13 @@ const osThreadAttr_t defaultTask_attributes = {
   .stack_size = 128 * 4,
   .priority = (osPriority_t) osPriorityNormal,
 };
+/* Definitions for audio_preproces */
+osThreadId_t audio_preprocesHandle;
+const osThreadAttr_t audio_preproces_attributes = {
+  .name = "audio_preproces",
+  .stack_size = 400 * 4,
+  .priority = (osPriority_t) osPriorityNormal7,
+};
 
 /* Private function prototypes -----------------------------------------------*/
 /* USER CODE BEGIN FunctionPrototypes */
@@ -62,6 +70,7 @@ const osThreadAttr_t defaultTask_attributes = {
 /* USER CODE END FunctionPrototypes */
 
 void StartDefaultTask(void *argument);
+void vTask_audio_preproces(void *argument);
 
 void MX_FREERTOS_Init(void); /* (MISRA C 2004 rule 8.1) */
 
@@ -95,6 +104,9 @@ void MX_FREERTOS_Init(void) {
   /* creation of defaultTask */
   defaultTaskHandle = osThreadNew(StartDefaultTask, NULL, &defaultTask_attributes);
 
+  /* creation of audio_preproces */
+  audio_preprocesHandle = osThreadNew(vTask_audio_preproces, NULL, &audio_preproces_attributes);
+
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
   /* USER CODE END RTOS_THREADS */
@@ -123,6 +135,26 @@ void StartDefaultTask(void *argument)
     osDelay(1);
   }
   /* USER CODE END StartDefaultTask */
+}
+
+/* USER CODE BEGIN Header_vTask_audio_preproces */
+/**
+* @brief Function implementing the audio_preproces thread.
+* @param argument: Not used
+* @retval None
+*/
+/* USER CODE END Header_vTask_audio_preproces */
+void vTask_audio_preproces(void *argument)
+{
+  /* USER CODE BEGIN vTask_audio_preproces */
+  /* Infinite loop */
+  for(;;)
+  {
+	  printf("audio_preproces\n");
+
+    osDelay(1);
+  }
+  /* USER CODE END vTask_audio_preproces */
 }
 
 /* Private application code --------------------------------------------------*/
