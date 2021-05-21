@@ -11,6 +11,9 @@
 #include "config.h"
 #include "filter_coefs.h"
 
+#include "math.h"
+
+
 
 //static q31_t q31_iir_state[4];
 static float32_t float_iir_state[4];
@@ -24,11 +27,18 @@ static arm_rfft_fast_instance_f32  f32_fft_inst;
 
 
 static const uint32_t MFCC_bins[] = {
-			  	 0,   0,   1,   2,   4,   5,   6,   7,   8,  10,  11,  12,  14,
-		        15,  17,  19,  21,  22,  24,  26,  28,  30,  33,  35,  38,  40,
-		        43,  46,  48,  51,  55,  58,  61,  65,  68,  72,  76,  81,  85,
-		        89,  94,  99, 104, 110, 115, 121, 127, 133, 140, 147, 154, 162,
-		       169, 177, 186, 195, 204, 214, 223, 234, 245, 256};
+				  0,   0,   1,   2,   3,   4,   5,   6,   8,   9,  10,  11,  13,
+				 14,  16,  17,  19,  20,  22,  24,  26,  28,  30,  32,  34,  36,
+				 39,  41,  44,  46,  49,  52,  55,  58,  61,  64,  68,  71,  75,
+				 79,  83,  87,  91,  96, 101, 106, 111, 116, 121, 127, 133, 139,
+				146, 152, 159, 166, 174, 182, 190, 198, 207, 216, 225, 235, 245,
+				256};
+
+
+
+
+
+
 
 
 
@@ -41,11 +51,13 @@ void MFCC_Init(){
 
 
 #ifdef MFCC_FLOAT
+float32_t dct_pState[N_FILTS*2];
+
 void MFCC_Process_Frame(q15_t *inputBuf, float32_t *mfcc_out){
-	float32_t *output = mfcc_out;
+	float32_t mfs_output[N_FILTS];
 
 #elif defined(MFCC_Q15)
-float32_t MFCC_Process_Frame_temp_mfcc_buffer[N_FILTS];
+float32_t MFCC_Process_Frame_temp_mfcc_buffer[N_FIasdfLTS];
 void MFCC_Process_Frame(q15_t *inputBuf, q15_t *mfcc_out){
 	float32_t *output = MFCC_Process_Frame_temp_mfcc_buffer;
 
@@ -80,7 +92,7 @@ void MFCC_Process_Frame(q15_t *inputBuf, q15_t *mfcc_out){
 
 
 
-	  memset(output, 0, N_FILTS*sizeof(*output));
+	  memset(mfs_output, 0, N_FILTS*sizeof(*mfs_output));
 
 	  /* For each filter */
 	  for(uint32_t m = 1; m < N_FILTS+1; m++){
@@ -90,21 +102,31 @@ void MFCC_Process_Frame(q15_t *inputBuf, q15_t *mfcc_out){
 
 		  // Lower half of weighted bin
 		  for(uint32_t k = f_m_minus; k < f_m; k++){
-			  output[m-1] += Process_fft_output[k] *
+			  mfs_output[m-1] += Process_fft_output[k] *
 					  (float32_t)(k - MFCC_bins[m - 1])/(float32_t)(MFCC_bins[m] - MFCC_bins[m - 1]);
 		  }
 
 		  // Upper half of weighted bin
 		  for(uint32_t k = f_m; k < f_m_plus; k++){
-			  output[m-1] += Process_fft_output[k] *
+			  mfs_output[m-1] += Process_fft_output[k] *
 					  (float32_t)(MFCC_bins[m + 1] - k)/(float32_t)(MFCC_bins[m + 1] - MFCC_bins[m]);
 		  }
 
 	  }
 
+
+
+
 //	  float32_t mean;
 //	  arm_mean_f32(output, N_FILTS, &mean);
+	  for (int i = 0; i < N_FILTS; i++){
+		  mfs_output[i] = 10.0 * log10f(fmaxf(1e-9,mfs_output[i]));
+	  }
 
+	  dct2_64_f32(dct_pState, mfs_output, mfcc_out);
+
+	  // Scale by factor of 1/sqrt(2*N_FILTS)
+	  arm_scale_f32(mfcc_out, 0.08838834764831845 , mfcc_out, N_CEPS);
 
 
 #ifdef MFCC_Q15
@@ -115,3 +137,137 @@ void MFCC_Process_Frame(q15_t *inputBuf, q15_t *mfcc_out){
 
 
 }
+
+
+
+
+
+
+
+
+
+
+
+#define dtc2_N 64
+
+
+void dct2_64_f32(float32_t * pState, float32_t * pIn, float32_t * pOut){
+	float32_t *pS1, *pS2, *pbuff;
+	int32_t i;
+
+	arm_rfft_fast_instance_f32 inst_rfft;
+
+	arm_rfft_fast_init_f32(&inst_rfft, dtc2_N);
+
+
+
+
+	/* pS1 initialized to pState */
+	pS1 = pState;
+
+	/* pS2 initialized to pState+N-1, so that it points to the end of the state buffer */
+	pS2 = pState + (dtc2_N - 1U);
+
+	/* pbuff initialized to input buffer */
+	pbuff = pIn;
+
+
+
+	/* Initializing the loop counter to N/2 >> 2 for loop unrolling by 4 */
+	i = dtc2_N/2 >> 2U;
+
+	/* First part of the processing with loop unrolling.  Compute 4 outputs at a time.
+	 ** a second loop below computes the remaining 1 to 3 samples. */
+	do
+	{
+		/* Re-ordering of even and odd elements */
+		/* pState[i] =  pInlineBuffer[2*i] */
+		*pS1++ = *pbuff++;
+		/* pState[N-i-1] = pInlineBuffer[2*i+1] */
+		*pS2-- = *pbuff++;
+
+		*pS1++ = *pbuff++;
+		*pS2-- = *pbuff++;
+
+		*pS1++ = *pbuff++;
+		*pS2-- = *pbuff++;
+
+		*pS1++ = *pbuff++;
+		*pS2-- = *pbuff++;
+
+		/* Decrement loop counter */
+		i--;
+	} while (i > 0U);
+
+	/* pbuff initialized to input buffer */
+	pbuff = pIn;
+
+	/* pS1 initialized to pState */
+	pS1 = pState;
+
+	/* Initializing the loop counter to N/4 instead of N for loop unrolling */
+	i = dtc2_N >> 2U;
+
+	/* Processing with loop unrolling 4 times as N is always multiple of 4.
+	* Compute 4 outputs at a time */
+	do
+	{
+		/* Writing the re-ordered output back to inplace input buffer */
+		*pbuff++ = *pS1++;
+		*pbuff++ = *pS1++;
+		*pbuff++ = *pS1++;
+		*pbuff++ = *pS1++;
+
+		/* Decrement the loop counter */
+		i--;
+	} while (i > 0U);
+
+
+	/* ---------------------------------------------------------
+	*     Step2: Calculate RFFT for N-point input
+	* ---------------------------------------------------------- */
+	/* pInlineBuffer is real input of length N , pState is the complex output of length 2N */
+	arm_rfft_fast_f32 (&inst_rfft, pIn, pState, 0);
+
+
+	/* Processing with loop unrolling 4 times as N is always multiple of 4.
+	* Compute 4 outputs at a time */
+
+	float32_t *half1 = pState + 2;
+	float32_t *half2 = pState + dtc2_N*2-1;
+	do
+	{
+		/* Writing the re-ordered output back to inplace input buffer */
+		float32_t real = *half1++;
+		float32_t imag = *half1++;
+		*half2-- = -imag;
+		*half2-- = real;
+	} while (half1 < half2);
+
+
+
+	/*----------------------------------------------------------------------
+	*  Step3: Multiply the FFT output with the weights.
+	*----------------------------------------------------------------------*/
+	arm_cmplx_mult_cmplx_f32 (pState, dct_weights_64, pState, dtc2_N);
+
+
+	// Only output 60 ceps
+	i = N_CEPS;
+	pbuff = pOut;
+	pS1 = pState+1; // Exclude the first bin
+	do {
+		*pbuff++ = 2 * *pS1++;
+		pS1++;
+		i--;
+	} while(i > 0);
+
+
+
+
+}
+
+
+
+
+
