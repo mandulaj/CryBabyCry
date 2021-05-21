@@ -4,8 +4,9 @@
 #ifndef __CONFIG_H
 #define __CONFIG_H
 
+#define N_CEPS 60
+#define N_FILTS 64
 
-#define N_FILTS 60
 #define MFCC_LENGTH 128
 
 
