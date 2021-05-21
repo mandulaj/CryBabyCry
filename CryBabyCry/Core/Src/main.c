@@ -79,6 +79,7 @@ extern osThreadId_t audio_preprocesHandle;
 
 int32_t RecBuff[REC_BUF_LENGTH];
 
+uint8_t ucHeap[ configTOTAL_HEAP_SIZE ] __attribute__((section(".ram2_bss")));
 
 
 
