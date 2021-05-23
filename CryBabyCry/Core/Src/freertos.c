@@ -70,7 +70,7 @@
 extern int32_t RecBuff[REC_BUF_LENGTH];
 
 
-static uint32_t cycles[MFCC_LENGTH];
+static uint32_t cycles[MFCC_LENGTH/2];
 
 #ifdef MFCC_FLOAT
 static float32_t MFCC_Buffer1[MFCC_LENGTH][N_CEPS];
@@ -90,7 +90,7 @@ static struct CPB cpb_struct;
 osThreadId_t defaultTaskHandle;
 const osThreadAttr_t defaultTask_attributes = {
   .name = "defaultTask",
-  .stack_size = 1000 * 4,
+  .stack_size = 512 * 4,
   .priority = (osPriority_t) osPriorityNormal,
 };
 /* Definitions for audio_preproces */
@@ -175,11 +175,6 @@ void MX_FREERTOS_Init(void) {
 /* USER CODE BEGIN Header_StartDefaultTask */
 
 
-float32_t in[128];
-float32_t out[256];
-float32_t temp[128];
-
-
 
 /**
   * @brief  Function implementing the defaultTask thread.
@@ -220,7 +215,7 @@ void StartDefaultTask(void *argument)
 //		USART1_printf("%f\n", RecBuff[0]/0.3);
 		printf("default:            Used Stack:  %ld Bytes of %ld Bytes\n", defaultTask_attributes.stack_size- uxTaskGetStackHighWaterMark( NULL )*4, defaultTask_attributes.stack_size);
 
-
+		printf("minimumFreeHeap %d\n", xPortGetMinimumEverFreeHeapSize());
 		osDelay(1);
 	}
 
@@ -283,7 +278,7 @@ void vTask_audio_preproces(void *argument)
 		// Swap buffers
 		CPB_copyFull(cpb);
 		StopTimer();
-		cycles[MFCC_index-1] = getCycles();
+		cycles[(MFCC_index-1)>>1U] = getCycles();
 
 
 		// MFCC Buffer is full
@@ -306,6 +301,80 @@ void vTask_audio_preproces(void *argument)
 }
 
 /* USER CODE BEGIN Header_vTask_nn_inference */
+
+
+AI_ALIGNED(4) ai_u8 activations[AI_MFS_MODEL_DATA_ACTIVATIONS_SIZE] ;
+
+AI_ALIGNED(4) ai_i8 in_data[AI_MFS_MODEL_IN_1_SIZE_BYTES] __attribute__((section(".ram2_bss")));
+AI_ALIGNED(4) ai_i8 out_data[AI_MFS_MODEL_OUT_1_SIZE_BYTES] __attribute__((section(".ram2_bss")));
+
+ai_handle mfs_model = AI_HANDLE_NULL;
+
+ai_buffer ai_input[AI_MFS_MODEL_IN_NUM] = AI_MFS_MODEL_IN;
+ai_buffer ai_output[AI_MFS_MODEL_OUT_NUM] = AI_MFS_MODEL_OUT;
+
+
+
+
+extern const ai_intq_info_list input_output_intq;
+static const float32_t AI_INPUT_ZERO_POINT = 11.0f;
+static const float32_t AI_INPUT_SCALE = 0.10976853966712952f;
+
+
+
+void NN_init(){
+	ai_error ai_err;
+
+
+	ai_network_params ai_params = {
+				AI_MFS_MODEL_DATA_WEIGHTS(ai_mfs_model_data_weights_get()),
+				AI_MFS_MODEL_DATA_ACTIVATIONS(activations)
+	};
+
+	ai_err = ai_mfs_model_create(&mfs_model, AI_MFS_MODEL_DATA_CONFIG);
+	if(ai_err.type != AI_ERROR_NONE){
+		printf("Error, could not create NN instance\n");
+		vTaskSuspend(NULL);
+	}
+
+
+	if(!ai_mfs_model_init(mfs_model, &ai_params)){
+		printf("Error, could not init NN\n");
+		vTaskSuspend(NULL);
+	}
+}
+
+
+void NN_inference(ai_i8 *input_data, ai_i8 *output_data){
+
+	ai_i32 nbatch;
+
+
+	ai_input[0].n_batches = 1;
+	ai_input[0].data = AI_HANDLE_PTR(in_data);
+	ai_output[0].n_batches = 1;
+	ai_output[0].data = AI_HANDLE_PTR(out_data);
+
+
+	nbatch  = ai_mfs_model_run(mfs_model, ai_input, ai_output);
+	if (nbatch != 1) {
+		printf("Error, could not run NN inference\n");
+		vTaskSuspend(NULL);
+	}
+
+}
+
+
+
+
+
+
+
+
+
+
+
+
 /**
 * @brief Function implementing the nn_inference thread.
 * @param argument: Not used
@@ -319,59 +388,19 @@ void vTask_nn_inference(void *argument)
 	uint32_t ulNotifiedValue;
 	float32_t *pMFCC_Buff;
 	uint32_t buffer_counter = 0;
-/*
-	ai_error ai_err;
-	ai_i32 nbatch;
 
-	AI_ALIGNED(4) ai_u8 activations[AI_MFS_MODEL_DATA_ACTIVATIONS_SIZE];
-
-	AI_ALIGNED(4) ai_i8 in_data[AI_MFS_MODEL_IN_1_SIZE_BYTES];
-	AI_ALIGNED(4) ai_i8 out_data[AI_MFS_MODEL_OUT_1_SIZE_BYTES];
-
-	ai_handle mfs_model = AI_HANDLE_NULL;
-
-	ai_buffer ai_input[AI_MFS_MODEL_IN_NUM] = AI_MFS_MODEL_IN;
-	ai_buffer ai_output[AI_MFS_MODEL_OUT_NUM] = AI_MFS_MODEL_OUT;
-
-	ai_network_params ai_params = {
-			AI_MFS_MODEL_DATA_WEIGHTS(ai_mfs_model_data_weights_get()),
-			AI_MFS_MODEL_DATA_ACTIVATIONS(activations)
-	};
-
-	ai_input[0].n_batches = 1;
-	ai_input[0].data = AI_HANDLE_PTR(in_data);
-	ai_output[0].n_batches = 1;
-	ai_output[0].data = AI_HANDLE_PTR(out_data);
-
-	ai_err = ai_mfs_model_create(&mfs_model, AI_MFS_MODEL_DATA_CONFIG);
-	if(ai_err.type != AI_ERROR_NONE){
-		USART1_printf("Error, could not create NN instance\n");
-		vTaskSuspend(NULL);
-	}
-
-	if(!ai_mfs_model_init(mfs_model, &ai_params)){
-		USART1_printf("Error, could not init NN\n");
-		vTaskSuspend(NULL);
-	}
-
-	HAL_TIM_Base_Start(&htim16);
-	uint32_t timestamp = htim16.Instance->CNT;
+//	printf("%f scale\n", *input_output_intq.info->scale);
+//	printf("%f zero\n", (float32_t) *(uint8_t *)input_output_intq.info->zeropoint);
+//
+//	while(1);
+	NN_init();
+//	while(1);
 
 
-	nbatch  = ai_mfs_model_run(mfs_model, ai_input, ai_output);
-	if (nbatch != 1) {
-		USART1_printf("Error, could not run NN inference\n");
-		vTaskSuspend(NULL);
-	}
 
-	uint8_t cry,other;
 
-	cry = out_data[0];
-	other = out_data[1];
 
-	USART1_printf("Detected: %s   cry: %d other: %d Inference Time (us): %d\n", (cry>other)? "cry" : "other", cry, other, htim16.Instance->CNT - timestamp);
-*/
-	printf("Start Free Stack nn_inf: %ld", uxTaskGetStackHighWaterMark(NULL));
+	printf("Start Free Stack nn_inf: %ld\n", uxTaskGetStackHighWaterMark(NULL));
 
 	/* Infinite loop */
 	for(;;)
@@ -385,53 +414,88 @@ void vTask_nn_inference(void *argument)
 		// Swap the buffer pointers
 
 
+		print_buffer_grid_f32((float32_t *)MFCC_Buffer1, 2, N_CEPS);
+
+
+		ResetTimer();
+		StartTimer();
+
+		float32_t mean, std;
+		arm_mean_f32(pMFCC_Buff, MFCC_LENGTH*N_CEPS, &mean);
+		arm_std_f32(pMFCC_Buff, MFCC_LENGTH*N_CEPS, &std);
+
+		//151365 cycles
+		//arm_offset_f32(pMFCC_Buff, -mean, pMFCC_Buff, MFCC_LENGTH*N_CEPS);
+		//arm_scale_f32(pMFCC_Buff, 1.0f/std, pMFCC_Buff, MFCC_LENGTH*N_CEPS);
+
+		// Subtract the mean and divide by std
+		// combined with divide by scale and add zero point
+
+		float32_t offset, scale;
+		//offset = AI_INPUT_ZERO_POINT * AI_INPUT_SCALE * std - mean;
+		//scale = AI_INPUT_SCALE * std * 128.0f; // Divide Factor of 128 because arm_float_to_q7 multiplies by 128
+		offset = -mean;
+		scale = 1.0f/std;
+
+		fast_offset_scale_f32(pMFCC_Buff, offset, scale, pMFCC_Buff, MFCC_LENGTH*N_CEPS);
+
+
+		arm_scale_f32(pMFCC_Buff, 1.0f/AI_INPUT_SCALE, pMFCC_Buff, MFCC_LENGTH*N_CEPS);
+		arm_offset_f32(pMFCC_Buff, AI_INPUT_ZERO_POINT, pMFCC_Buff, MFCC_LENGTH*N_CEPS);
+
+		arm_scale_f32(pMFCC_Buff, 1.0/128.0f, pMFCC_Buff, MFCC_LENGTH*N_CEPS);
+
+		// Convert to uint8
+		arm_float_to_q7(pMFCC_Buff, in_data, MFCC_LENGTH*N_CEPS);
+
+
+		StopTimer();
+
+
+
+
+		printf("Scaling took %d cycles\n", getCycles());
+		printf("Mean: %f, std %f\n", mean, std);
+		printf("offset: %f, scale %f\n", offset, scale);
+
+
+
+
+		HAL_TIM_Base_Start(&htim16);
+		uint32_t timestamp = htim16.Instance->CNT;
+
+		NN_inference(in_data, out_data);
+
+		int8_t cry,other;
+
+		cry = out_data[0];
+		other = out_data[1];
+
+		printf("Detected: %s   cry: %d other: %d Inference Time (us): %ld\n", (cry>other)? "cry" : "other", cry, other, htim16.Instance->CNT - timestamp);
+
 
 
 		if(buffer_counter >= 1){
+
 			printf("Printing buffer %p\n", pMFCC_Buff);
 			printf("Cycle counts: \n");
-			for(int i = 0; i < MFCC_LENGTH; i++){
-				printf("%ld ", cycles[i]);
-			}
+
+			print_buffer_grid_i32((int32_t *)cycles, 8, 8);
+
+
+
+
+
+			printf("\nQuantized:\n");
+			print_buffer_grid_q7(in_data, MFCC_LENGTH, N_CEPS);
+
 			printf("\n\nBuffer 1:\n");
+			print_buffer_grid_f32(MFCC_Buffer1, MFCC_LENGTH, N_CEPS);
 
-			for(int i = 0; i< MFCC_LENGTH; i++){
-				for(int m = 0; m < N_CEPS; m+=6){
-#ifdef MFCC_FLOAT
-					printf("%f %f %f %f %f %f ",
-												MFCC_Buffer1[i][m],
-												MFCC_Buffer1[i][m+1],
-												MFCC_Buffer1[i][m+2],
-												MFCC_Buffer1[i][m+3],
-												MFCC_Buffer1[i][m+4],
-												MFCC_Buffer1[i][m+5]);
 
-#elif defined(MFCC_Q15)
-					USART1_printf("%i ", MFCC_Buffer1[i][m]);
-#endif
-
-				}
-				printf("\n");
-
-			}
-//			USART1_printf("\n\nBuffer 2:\n");
-//			for(int i = 0; i< MFCC_LENGTH; i++){
-//				for(int m = 0; m < N_CEPS; m++){
-//#ifdef MFCC_FLOAT
-//					USART1_printf("%f ", MFCC_Buffer2[i][m]);
-//
-//#elif defined(MFCC_Q15)
-//					USART1_printf("%i ", MFCC_Buffer2[i][m]);
-//#endif
-//
-//				}
-//				USART1_printf("\n");
-//
-//			}
-
+			printf("End Free Stack nn_inf: %ld", uxTaskGetStackHighWaterMark(NULL));
 
 			xTaskNotify(defaultTaskHandle, 0, eSetValueWithOverwrite);
-			printf("End Free Stack nn_inf: %ld", uxTaskGetStackHighWaterMark(NULL));
 
 
 //			vTaskSuspend(NULL);

@@ -126,7 +126,7 @@ void MFCC_Process_Frame(q15_t *inputBuf, q15_t *mfcc_out){
 	  dct2_64_f32(dct_pState, mfs_output, mfcc_out);
 
 	  // Scale by factor of 1/sqrt(2*N_FILTS)
-	  arm_scale_f32(mfcc_out, 0.08838834764831845 , mfcc_out, N_CEPS);
+	  //arm_scale_f32(mfcc_out, 0.08838834764831845 , mfcc_out, N_CEPS);
 
 
 #ifdef MFCC_Q15
@@ -249,15 +249,16 @@ void dct2_64_f32(float32_t * pState, float32_t * pIn, float32_t * pOut){
 	/*----------------------------------------------------------------------
 	*  Step3: Multiply the FFT output with the weights.
 	*----------------------------------------------------------------------*/
+	// Multiply with 2 * np.exp(-1j*pi*k/(2*N))
 	arm_cmplx_mult_cmplx_f32 (pState, dct_weights_64, pState, dtc2_N);
 
 
 	// Only output 60 ceps
 	i = N_CEPS;
 	pbuff = pOut;
-	pS1 = pState+1; // Exclude the first bin
+	pS1 = pState+2; // Exclude the first two bins
 	do {
-		*pbuff++ = 2 * *pS1++;
+		*pbuff++ = *pS1++;
 		pS1++;
 		i--;
 	} while(i > 0);
@@ -266,6 +267,33 @@ void dct2_64_f32(float32_t * pState, float32_t * pIn, float32_t * pOut){
 
 
 }
+
+
+void fast_offset_scale_f32(float32_t *pSrc, float32_t offset, float32_t scale, float32_t *pDst, uint32_t blockSize){
+	uint32_t blkCnt;
+
+	blkCnt = blockSize >> 2U;
+
+	do {
+		*pDst++ = ((*pSrc++) + offset) * scale;
+		*pDst++ = ((*pSrc++) + offset) * scale;
+		*pDst++ = ((*pSrc++) + offset) * scale;
+		*pDst++ = ((*pSrc++) + offset) * scale;
+
+		blkCnt--;
+	} while (blkCnt > 0U);
+
+	blkCnt = blockSize % 0x4U;
+
+
+	while (blkCnt > 0U){
+		*pDst++ = ((*pSrc++) + offset) * scale;
+		blkCnt--;
+	}
+}
+
+
+
 
 
 
