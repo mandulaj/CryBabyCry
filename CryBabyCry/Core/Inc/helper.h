@@ -24,6 +24,9 @@ void print_buffer_f32(float32_t *buf, uint32_t len);
 void print_buffer_q31(q31_t *buf, uint32_t len);
 void print_buffer_q15(q15_t *buf, uint32_t len);
 
+void print_buffer_grid_f32(float32_t * buf, uint32_t row, uint32_t columns);
+void print_buffer_grid_i32(int32_t * buf, uint32_t row, uint32_t columns);
+void print_buffer_grid_q7(q7_t * buf, uint32_t row, uint32_t columns);
 
 //void USART1_printf(char *fmt, ...);
 
