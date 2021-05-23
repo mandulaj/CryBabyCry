@@ -77,7 +77,7 @@ void MX_FREERTOS_Init(void);
 
 extern osThreadId_t audio_preprocesHandle;
 
-int32_t RecBuff[REC_BUF_LENGTH];
+int32_t RecBuff[REC_BUF_LENGTH] __attribute__((section(".ram2_bss")));
 
 uint8_t ucHeap[ configTOTAL_HEAP_SIZE ] __attribute__((section(".ram2_bss")));
 
@@ -98,7 +98,6 @@ void HAL_DFSDM_FilterRegConvCpltCallback(DFSDM_Filter_HandleTypeDef *hdfsdm_filt
 	xTaskNotifyFromISR(audio_preprocesHandle, 2, eSetValueWithOverwrite, &xHigherPriorityTaskWoken);
 	portYIELD_FROM_ISR( xHigherPriorityTaskWoken );
 }
-
 
 
 /* USER CODE END 0 */
