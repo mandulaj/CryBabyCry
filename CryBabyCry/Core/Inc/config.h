@@ -4,21 +4,17 @@
 #ifndef __CONFIG_H
 #define __CONFIG_H
 
-#define N_CEPS 60
-#define N_FILTS 64
+#define N_CEPS 40     // Number of ceps provided to the NN
+#define N_FILTS 64    // Should be power of 2 for simpler FFT
 
-#define MFCC_LENGTH 128
+#define CEPS_OFFSET 12		// Number of lower ceps discarded
 
-
-#define FRAME_LENGTH 512
-#define REC_BUF_LENGTH (2*FRAME_LENGTH)
+#define MFCC_LENGTH 64     // Number of Frames in the MFCC
 
 
-// MFCC Type
-#define MFCC_FLOAT
-#ifndef MFCC_FLOAT
-#define MFCC_Q15
-#endif
+#define FRAME_LENGTH 512   // Number of sample in each MFCC frame ( should be power of 2)
+#define REC_BUF_LENGTH (2*FRAME_LENGTH) // Buffer length for two consecutive frames
+
 
 
 #endif

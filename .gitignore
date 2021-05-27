@@ -13,10 +13,12 @@ __pycache__
 *.a
 *.lib
 
+CryBabyCry/.mxproject
 CryBabyCry/Middlewares/
 CryBabyCry/Drivers
 CryBabyCry/Debug
 CryBabyCry/Release
+CryBabyCry/X-CUBE-AI
 
 *.su
 *.d
@@ -34,3 +36,11 @@ audio_test.py
 
 *.launch
 *.prefs
+
+.ipynb_checkpoints
+./cache
+*.pkl
+*.tflite
+wandb
+
+

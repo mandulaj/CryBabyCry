@@ -72,15 +72,11 @@ extern int32_t RecBuff[REC_BUF_LENGTH];
 
 static uint32_t cycles[MFCC_LENGTH/2];
 
-#ifdef MFCC_FLOAT
+
 static float32_t MFCC_Buffer1[MFCC_LENGTH][N_CEPS];
 static float32_t MFCC_Buffer2[MFCC_LENGTH][N_CEPS];
 
-#elif defined(MFCC_Q15)
-static q15_t MFCC_Buffer1[MFCC_LENGTH][N_CEPS];
-static q15_t MFCC_Buffer2[MFCC_LENGTH][N_CEPS];
 
-#endif
 static struct CPB cpb_struct;
 
 
@@ -185,20 +181,6 @@ void MX_FREERTOS_Init(void) {
 void StartDefaultTask(void *argument)
 {
   /* USER CODE BEGIN StartDefaultTask */
-	/*for(int i =0; i < 64; i++){
-		in[i] = i;
-	}
-
-	dct2_64_f32(temp, in, out);
-
-	for(int i =0; i < 64; i+=4){
-		USART1_printf("%f %f %f %f\n", out[i],out[i+1],out[i+2],out[i+3]);
-	}
-
-	USART1_printf("\n");
-
-	  while(1);*/
-
 	// Start the Microphone Filtering
 	if(HAL_OK != HAL_DFSDM_FilterRegularStart_DMA(&hdfsdm1_filter0, RecBuff, REC_BUF_LENGTH)){
 	  Error_Handler();
@@ -225,8 +207,7 @@ void StartDefaultTask(void *argument)
 /* USER CODE BEGIN Header_vTask_audio_preproces */
 volatile int proc = 1;
 /**
-* @brief Function implementing the audio_preproces thread.
-* @param argument: Not used
+* @brief Function implementing the ae
 * @retval None
 */
 /* USER CODE END Header_vTask_audio_preproces */
@@ -317,8 +298,8 @@ ai_buffer ai_output[AI_MFS_MODEL_OUT_NUM] = AI_MFS_MODEL_OUT;
 
 
 extern const ai_intq_info_list input_output_intq;
-static const float32_t AI_INPUT_ZERO_POINT = 11.0f;
-static const float32_t AI_INPUT_SCALE = 0.10976853966712952f;
+static const float32_t AI_INPUT_ZERO_POINT = 6.0f;
+static const float32_t AI_INPUT_SCALE = 0.060015641152858734f;
 
 
 
@@ -370,11 +351,6 @@ void NN_inference(ai_i8 *input_data, ai_i8 *output_data){
 
 
 
-
-
-
-
-
 /**
 * @brief Function implementing the nn_inference thread.
 * @param argument: Not used
@@ -406,19 +382,13 @@ void vTask_nn_inference(void *argument)
 	for(;;)
 	{
 		xTaskNotifyWait(0x00, ULONG_MAX, &ulNotifiedValue, portMAX_DELAY);
-		vTaskSuspend(audio_preprocesHandle);
+//		vTaskSuspend(audio_preprocesHandle);
 
 		pMFCC_Buff = (float32_t *)ulNotifiedValue;
 
 		buffer_counter++;
 		// Swap the buffer pointers
 
-
-		print_buffer_grid_f32((float32_t *)MFCC_Buffer1, 2, N_CEPS);
-
-
-		ResetTimer();
-		StartTimer();
 
 		float32_t mean, std;
 		arm_mean_f32(pMFCC_Buff, MFCC_LENGTH*N_CEPS, &mean);
@@ -439,7 +409,6 @@ void vTask_nn_inference(void *argument)
 
 		fast_offset_scale_f32(pMFCC_Buff, offset, scale, pMFCC_Buff, MFCC_LENGTH*N_CEPS);
 
-
 		arm_scale_f32(pMFCC_Buff, 1.0f/AI_INPUT_SCALE, pMFCC_Buff, MFCC_LENGTH*N_CEPS);
 		arm_offset_f32(pMFCC_Buff, AI_INPUT_ZERO_POINT, pMFCC_Buff, MFCC_LENGTH*N_CEPS);
 
@@ -449,19 +418,9 @@ void vTask_nn_inference(void *argument)
 		arm_float_to_q7(pMFCC_Buff, in_data, MFCC_LENGTH*N_CEPS);
 
 
-		StopTimer();
-
-
-
-
-		printf("Scaling took %d cycles\n", getCycles());
-		printf("Mean: %f, std %f\n", mean, std);
-		printf("offset: %f, scale %f\n", offset, scale);
-
-
-
 
 		HAL_TIM_Base_Start(&htim16);
+		htim16.Instance->CNT = 0;
 		uint32_t timestamp = htim16.Instance->CNT;
 
 		NN_inference(in_data, out_data);
@@ -470,35 +429,15 @@ void vTask_nn_inference(void *argument)
 
 		cry = out_data[0];
 		other = out_data[1];
+		printf("================\n");
+		printf("Detected: %s\n",(cry>other)? "CRY" : "OTHER");
+		printf("================\n");
+		printf("cry: %d other: %d Inference Time (us): %ld\n", cry, other, htim16.Instance->CNT - timestamp);
 
-		printf("Detected: %s   cry: %d other: %d Inference Time (us): %ld\n", (cry>other)? "cry" : "other", cry, other, htim16.Instance->CNT - timestamp);
-
-
-
-		if(buffer_counter >= 1){
-
-			printf("Printing buffer %p\n", pMFCC_Buff);
-			printf("Cycle counts: \n");
-
-			print_buffer_grid_i32((int32_t *)cycles, 8, 8);
-
-
-
-
-
-			printf("\nQuantized:\n");
-			print_buffer_grid_q7(in_data, MFCC_LENGTH, N_CEPS);
-
-			printf("\n\nBuffer 1:\n");
-			print_buffer_grid_f32(MFCC_Buffer1, MFCC_LENGTH, N_CEPS);
-
-
-			printf("End Free Stack nn_inf: %ld", uxTaskGetStackHighWaterMark(NULL));
-
-			xTaskNotify(defaultTaskHandle, 0, eSetValueWithOverwrite);
-
-
-//			vTaskSuspend(NULL);
+		if (cry > other){
+			HAL_GPIO_WritePin(LED1_GPIO_Port, LED1_Pin, 1);
+		} else {
+			HAL_GPIO_WritePin(LED1_GPIO_Port, LED1_Pin, 0);
 		}
 	}
   /* USER CODE END vTask_nn_inference */
