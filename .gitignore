@@ -43,4 +43,4 @@ audio_test.py
 *.tflite
 wandb
 
-
+mcu_mfcc.txt
