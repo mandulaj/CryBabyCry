@@ -20,23 +20,24 @@ from keras.models import Model
 from keras import regularizers
 
 
-def NN_model():
+def NN_model(n_frames, n_ceps):
 
-    l2 = 0.001
+    l2 = 0.003
+    dropout = 0.3
 
-    input1= Input(shape=(60,111,1),name='input')
+    input1= Input(shape=(n_frames,n_ceps,1),name='input')
 
-    x = Conv2D(filters=64,
-               kernel_size=(3,3),
+    x = Conv2D(filters=8,
+               kernel_size=(4,4),
                padding='same',
                strides=(2,2),
                kernel_initializer='he_normal',
                kernel_regularizer=keras.regularizers.l2(l2))(input1)
     x = BatchNormalization()(x)
     x = Activation('relu')(x)
+    x = Dropout(dropout)(x)
 
-
-    x = Conv2D(filters=64,
+    x = Conv2D(filters=16,
                kernel_size=(3,3),
                padding='same',
                strides=(2,2),
@@ -44,10 +45,11 @@ def NN_model():
                kernel_regularizer=keras.regularizers.l2(l2))(x)
     x = BatchNormalization()(x)
     x = Activation('relu')(x)
+    x = Dropout(dropout)(x)
 
     x = MaxPooling2D(pool_size=(1,5), padding='same')(x)
 
-    x = Conv2D(filters=64,
+    x = Conv2D(filters=32,
                kernel_size=(3,3),
                padding='same',
                strides=(2,2),
@@ -55,15 +57,16 @@ def NN_model():
                kernel_regularizer=keras.regularizers.l2(l2))(x)
     x = BatchNormalization()(x)
     x = Activation('relu')(x)
+    x = Dropout(dropout)(x)
 
     x = Conv2D(filters=64,
                kernel_size=(3,3),
                padding='same',
-               strides=(2,2),
                kernel_initializer='he_normal',
                kernel_regularizer=keras.regularizers.l2(l2))(x)
     x = BatchNormalization()(x)
     x = Activation('relu')(x)
+    x = Dropout(dropout)(x)
 
 
 

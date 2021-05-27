@@ -1,249 +1,256 @@
 import numpy as np
 import matplotlib.pyplot as plt 
 
-from scipy.io import wavfile
-from scipy.signal import resample
 
-import csv
-import os
-import pickle
-import tqdm
-
-import librosa
-
+import tensorflow as tf
 
 from models import nn_tf
+from data_utils import get_data, segment_data, get_mfcc_train, get_mfcc_valid, augment_audio_train, augment_audio_valid,augment_mfcc_train,augment_mfcc_valid
+
+from tools import plot_confusion_matrix_raw, cached
 
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import confusion_matrix
+from tensorflow import keras
 
-import matplotlib
+
+import wandb
+from wandb.keras import WandbCallback
+
+
+
+
+
+
+wandb.init(project='cbc', entity='mandula')
+
+config = wandb.config
+
+
+
+
+
+
 
 DATA_FOLDER="./data"
 
-N_FILTS=60
-FFT_SKIP=256
-FFT_SIZE=512
-N_FRAMES = 128
 
-SF=16000
-SAMPLE_LENGTH=N_FRAMES/2 * FFT_SIZE
+CONFIG={
+    "n_filts": 64,
+    "n_ceps_raw": 64,
+    "n_ceps": 40,
+    "fft_skip": 256,
+    "n_fft": 512,
+    "n_frames": 64,
+    "sf":16000,
+    "sample_length":0,
+    "split":0.7,
+    "audio_aug_os":0.7,
+    "ceps_co_low": 10,
+    "ceps_co_high": 14
 
+}
 
-SF=8000
+CONFIG["sample_length"] = int(CONFIG["n_frames"]/2 * CONFIG["n_fft"])
 
-SPLIT=0.8
+SPLIT_TEST = 0.99
 
+EPOCHS=20
 
-def zero_pad(a, length):
-    z = np.zeros(length)
-    offset = len(z)//2 - len(a)//2
-    if offset < 0:
-        offset = 0
-    z[offset:offset+len(a)] = a
-    return z
- 
+def tflite_convert_model(model, train_inp, name, quantize=True, config=CONFIG):
 
-
-def cached(cachefile):
-    """
-    A function that creates a decorator which will use "cachefile" for caching the results of the decorated function "fn".
-    """
-    def decorator(fn):  # define a decorator for a function "fn"
-        def wrapped(*args, **kwargs):   # define a wrapper that will finally call "fn" with all arguments            
-            # if cache exists -> load it and return its content
-            if os.path.exists(cachefile):
-                    with open(cachefile, 'rb') as cachehandle:
-                        print("using cached result from '%s'" % cachefile)
-                        return pickle.load(cachehandle)
-
-            # execute the function with all arguments passed
-            res = fn(*args, **kwargs)
-
-            # write to cache file
-            with open(cachefile, 'wb') as cachehandle:
-                print("saving result to cache '%s'" % cachefile)
-                pickle.dump(res, cachehandle)
-
-            return res
-
-        return wrapped
-
-    return decorator   # return this "customized" decorator that uses "cachefile"
-
-
-
-def get_files_from_cat(path):
-    files = []
-    for file in os.listdir(path):
-        file_path = os.path.join(path, file)
-        if os.path.isfile(file_path):
-            files.append(file_path)
-    return files
-
-
-def get_audio_file_categories(path):
-    categories ={}
-    for dir in os.listdir(path):
-        cat_path = os.path.join(path,dir)
-        if os.path.isdir(cat_path):
-            categories[dir] = get_files_from_cat(cat_path)
-
-    return categories
-
-
-def load_data(categories, new_rate=16000):
-    cat_data = {}
-    for cat, paths in categories.items():
-        audio_data = []
-        for path in tqdm.tqdm(paths):
-            # raw = librosa.load(path, sr=8000)
-            sampling_rate, data = wavfile.read(path)
-            
-            data = np.array(data, dtype=float)
-            if sampling_rate !=new_rate:
-                number_of_samples = round(len(data) * float(new_rate) / sampling_rate)
-                data = resample(data, number_of_samples)
-            data /= 2**16
-
-            # padd all to same length
-            data = zero_pad(data, 56480)
-          
-            
-            audio_data.append(data)
-        cat_data[cat] = audio_data
-    return cat_data
-
-
-def getESC50(path):
-    categories = {}
-    audio_path = os.path.join(path, "audio")
-    with open(os.path.join(path, "meta/esc50.csv"), newline='') as csvfile:
-        reader = csv.reader(csvfile, delimiter=',')
-        next(reader) # skip first row
-        for i,row in enumerate(reader):
-            cat = row[3]
-            name = os.path.join(audio_path, row[0])
-            if cat not in categories:
-                categories[cat] = [name]
-            else:
-                categories[cat].append(name)
-
-    return categories
-
-
-
-
-def plot_confusion_matrix_raw(cm, title="", path=None, fileName='confusion_matrix.png'):
-    colormap = "viridis"
-
-    plt.figure()
-    plt.title(title)
-    plt.imshow(cm, cmap=colormap)
-    plt.xlabel("Predicted Label")
-    plt.ylabel("True Label")
-    plt.colorbar()
-    plt.xticks(np.arange(len(cm)))
-    plt.yticks(np.arange(len(cm)))
-
-    cmap = matplotlib.cm.get_cmap(colormap)
-    for x in range(len(cm)):
-        for y in range(len(cm)):
-            plt.text(x, y,  "{:.2f}".format(cm[y, x]), 
-                horizontalalignment='center', 
-                verticalalignment='center',
-                fontsize=10,
-                c=cmap(1-np.round(cm[y, x])))
+    print("TFLite conversion")
+    converter = tf.lite.TFLiteConverter.from_keras_model(model)
     
+    if quantize:
+        def representative_dataset():
+            for t in train_inp:
+                yield[ np.array(t.reshape(1,config["n_frames"], config["n_ceps"],1),dtype=np.float32)]
+
+        converter.optimizations = [tf.lite.Optimize.DEFAULT]
+        converter.target_spec.supported_ops = [tf.lite.OpsSet.TFLITE_BUILTINS_INT8]
+        converter.inference_input_type = tf.int8  # or tf.uint8
+        converter.inference_output_type = tf.int8  # or tf.uint8
+        converter.representative_dataset = representative_dataset
+    tflite_model = converter.convert()
+    with open(name,"wb") as f:
+        f.write(tflite_model)
+
+def validate_tflite_model(name, valid_inp, valid_label):
+
+    tflite_interpreter = tf.lite.Interpreter(model_path=name)
+    tflite_interpreter.allocate_tensors()
 
 
+    predictions = np.zeros((len(valid_inp),), dtype=int)
+    input_details = tflite_interpreter.get_input_details()
+    output_details = tflite_interpreter.get_output_details()
 
-@cached('./data/mfcc.pkl')
-def get_mfcc():
-    audios_esc50 = getESC50(os.path.join(DATA_FOLDER, "ESC-50"))
+    print("== Input details ==")
+    print("name:", input_details[0]['name'])
+    print("shape:", input_details[0]['shape'])
+    print("type:", input_details[0]['dtype'])
 
-    audios_baby = get_audio_file_categories(os.path.join(DATA_FOLDER, "donateacry_corpus_cleaned_and_updated_data"))
+    print("\n== Output details ==")
+    print("name:", output_details[0]['name'])
+    print("shape:", output_details[0]['shape'])
+    print("type:", output_details[0]['dtype'])
 
-    merged = {"baby_cry": [], "other": []}
+    predictions = np.zeros((len(valid_inp),), dtype=int)
+    input_scale, input_zero_point = input_details[0]["quantization"]
+    for i in range(len(valid_inp)):
+        val_batch = np.array(valid_inp[i],dtype=np.float32)
+        # print(np.min(val_batch), np.max(val_batch))
 
-    for k in audios_esc50:
-        if k == "crying_baby":
-            merged["baby_cry"] += audios_esc50[k]
-        else:
-            merged["other"] += audios_esc50[k]
+        val_batch = val_batch / input_scale + input_zero_point
+        # print(np.min(val_batch), np.max(val_batch))
 
-    for k in audios_baby:
-        merged["baby_cry"] += audios_baby[k]
+        val_batch = np.expand_dims(val_batch, axis=0).astype(input_details[0]["dtype"])
+        tflite_interpreter.set_tensor(input_details[0]['index'], val_batch)
+        tflite_interpreter.allocate_tensors()
+        tflite_interpreter.invoke()
 
-    # print(merged['other'][1]) 
-    # return
-    data = load_data(merged, SF)
+        tflite_model_predictions = tflite_interpreter.get_tensor(output_details[0]['index'])
+        #print("Prediction results shape:", tflite_model_predictions.shape)
+        output = tflite_interpreter.get_tensor(output_details[0]['index'])
+        predictions[i] = output.argmax()
 
-    for k in data:
-        for i, s in tqdm.tqdm(enumerate(data[k])):
-            # data[k][i] = librosa.feature.mfcc(data[k][i], sr=SF, n_mfcc=60)
-            data[k][i] = librosa.feature.melspectrogram(data[k][i], sr=SR, n_fft=FFT_SIZE, hop_length=FFT_SKIP,n_mels=N_FILTS)[:,1:]
+    s = 0
+    for i in range(len(predictions)):
+        if (predictions[i] == valid_label[i]):
+            s += 1
+    accuracy_score = s / len(predictions)
 
-    return data
-    
 
-def main():
-    data_raw = get_mfcc()
+    return predictions, valid_label, accuracy_score
+
+@cached("./cache/dataset.pkl")
+def load_dataset(config=CONFIG):
+    print("Loading Data")
+    data = get_data(DATA_FOLDER,config["sf"])
+
+    print("Segmenting audio")
+    data = segment_data(data, config["sample_length"])
+    # print(len(data['baby_cry']), len(data['other']))
+
+    indexes = np.arange(len(data['other']))
+
+    indexes = np.random.choice( indexes, size=len( data["baby_cry"] ), replace=False)
+    data["other"] = np.array(data["other"])[indexes]
+
+    print(len(data['baby_cry']), len(data['other']))
+
 
     data_inputs = []
     data_labels = []
 
     labels = {"baby_cry": np.array([1,0]), "other": np.array([0,1])}
 
-    lim = 0
-
-    for k in data_raw:
-        for s in data_raw[k]:
-            # if k == "other":
-            #     if lim > 492:
-            #         continue
-            #     lim += 1
+    print("Merge")
+    for k in data:
+        count = 0
+        for s in data[k]:
+            count+=1
             data_inputs.append(s)
             data_labels.append(labels[k])
+        print("{} {}".format(count, k))
 
-    data_inputs = np.array(data_inputs).reshape((-1,60,111,1))
+
     data_labels = np.array(data_labels)
+    data_inputs = np.array(data_inputs)
+    print("Split")
+    train_x,  valid_x, train_y, valid_y = train_test_split(data_inputs, data_labels, train_size=config["split"])
+    print("   Train set {} Validation set: {}".format(len(train_x), len(valid_x)))
 
-    print(data_inputs.shape)
-    print(data_labels.shape)
+    print("Augmenting training data")
+    train_x, train_y = augment_audio_train(train_x, train_y, config)
+    print("Augmenting validation data")
+    valid_x, valid_y = augment_audio_valid(valid_x, valid_y, config)
 
-    train_inp,  valid_inp, train_lab, valid_lab = train_test_split(data_inputs, data_labels, train_size=SPLIT)
+    print("   Train set {} Validation set: {}".format(len(train_x), len(valid_x)))
+
+
+    print("Generating MFCC")
+    train_x = get_mfcc_train(train_x, config)    
+    valid_x = get_mfcc_valid(valid_x, config)
     
+    print("Augment MFCC")
+    train_x = augment_mfcc_train(train_x, train_y, config)
+    valid_x = augment_mfcc_valid(valid_x, valid_y, config)
 
 
-    model = nn_tf.NN_model()
+    train_x = train_x.reshape(-1, config["n_frames"], config["n_ceps"], 1)
+    valid_x = valid_x.reshape(-1, config["n_frames"], config["n_ceps"], 1)
+
+
+
+    return train_x, valid_x, train_y, valid_y
+
+
+
+
+def main():
+   
+    print("Load Dataset:")
+    train_x, valid_x, train_y, valid_y = load_dataset()
+
+    valid_x,  test_x, valid_y, test_y = train_test_split(valid_x, valid_y, train_size=SPLIT_TEST)
+
+
+    model = nn_tf.NN_model(CONFIG["n_frames"],CONFIG["n_ceps"])
     model.summary()
 
-    print(train_inp.shape)
-    print(len(valid_inp))
+    print(train_x.shape)
+    print(valid_x.shape)
+    print(test_x.shape)
 
   
+    print("Start Training")
+    best_val_ac = 0
+    best_val_e = 0
+    for e in range(EPOCHS):
+        print("Epoch", e)
+        history = model.fit(x=train_x, y=train_y, validation_data=(valid_x, valid_y), epochs=1, callbacks=[WandbCallback()])
+        val_ac = history.history['val_accuracy'][0]
 
-    for e in range(10):
-        model.fit(x=train_inp, y=train_lab, validation_data=(valid_inp, valid_lab), epochs=1)
+        if val_ac > best_val_ac:
+            best_val_ac = val_ac
+            best_val_e = e
+        
+            print("Saving model with validation {} /tmp/{}_{}_model.save".format(best_val_ac, e, best_val_ac))
+            model.save("/tmp/{}_{}_model.save".format(e, best_val_ac))
 
+
+    model = keras.models.load_model("/tmp/{}_{}_model.save".format(best_val_e, best_val_ac))
+    print("Saving model")
     model.save("./data/model.save")
-    pred = model.predict(x=valid_inp)
-    print(pred)
-    y_pred = np.argmax(pred, axis=1)
-    y_true = np.argmax(valid_lab, axis=1)
+    y_pred = model.predict(x=valid_x)
 
-    cm = confusion_matrix(y_true, y_pred)
-    plot_confusion_matrix_raw(cm)
+    y_pred = np.argmax(y_pred, axis=1)
+    y_true = np.argmax(valid_y, axis=1)
+
+
+    print("Save quantized model")
+    tflite_convert_model(model, train_x, "MFCCmodel_full.tflite", quantize=False)
+    tflite_convert_model(model, train_x, "MFCCmodel_q8.tflite", quantize=True)
+
+
+    y_pred_q8, _, accuracy_score = validate_tflite_model("MFCCmodel_q8.tflite", valid_x, y_true)
+
+
+    print("Accuracy of quantized to int8 model is {}%".format(accuracy_score*100))
+    # //print("Compared to float32 accuracy of {}%".format(score[1]*100))
+    # print("We have a change of {}%".format((accuracy_score-score[1])*100))
+
+
+
+
+    cmf32 = confusion_matrix(y_true, y_pred)
+    cmi8 = confusion_matrix(y_true, y_pred_q8)
+    plot_confusion_matrix_raw(cmf32, title="float32_model")
+    plot_confusion_matrix_raw(cmi8, title='i8_model')
     plt.show()
-    pass
-    # sample = data['belly_pain'][0]
-    # plt.plot(sample)
-    # plt.show()
-    
-    
-    
-    # return data
+
 
 
 
