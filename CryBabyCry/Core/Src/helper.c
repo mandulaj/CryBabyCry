@@ -94,6 +94,31 @@ void print_buffer_grid_q7(q7_t * buf, uint32_t row, uint32_t columns){
 }
 
 
+void print_buffer_grid_q15(q15_t * buf, uint32_t row, uint32_t columns){
+	for (uint32_t r = 0; r < row; r++){
+		uint32_t c = columns >> 2U;
+
+		q15_t v1, v2, v3, v4;
+
+		do {
+			v1 = *buf++;
+			v2 = *buf++;
+			v3 = *buf++;
+			v4 = *buf++;
+			printf("%i %i %i %i ",  v1, v2, v3, v4);
+			c--;
+		} while(c > 0);
+
+		c = columns % 4;
+		while(c > 0){
+			printf("%i ", *buf++);
+			c--;
+		}
+
+		printf("\n");
+	}
+}
+
 
 
 void print_buffer_f32(float32_t *buf, uint32_t len){
