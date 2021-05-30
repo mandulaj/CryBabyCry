@@ -1,28 +1,25 @@
 #include "CycleCounter.h"
 
 
-static volatile unsigned int *DWT_CYCCNT  ;
-static volatile unsigned int *DWT_CONTROL ;
-static volatile unsigned int *SCB_DEMCR   ;
 
+//static uint32_t cycle_offset = 0;
 
-void ResetTimer(){
+void InitTimer(){
 	DWT_CYCCNT   = (unsigned int *)0xE0001004; //address of the register
 	DWT_CONTROL  = (unsigned int *)0xE0001000; //address of the register
 	SCB_DEMCR    = (unsigned int *)0xE000EDFC; //address of the register
+}
+
+
+void ResetTimer(){
 	*SCB_DEMCR   = *SCB_DEMCR | 0x01000000;
+	*DWT_CONTROL = 0;
 	*DWT_CYCCNT  = 0; // reset the counter
-	*DWT_CONTROL = 0; 
+
 }
 
-void StartTimer(){
-	*DWT_CONTROL = *DWT_CONTROL | 1 ; // enable the counter
-}
 
-void StopTimer(){
-	*DWT_CONTROL = *DWT_CONTROL & 0 ; // disable the counter    
-}
-
-unsigned int getCycles(){
+// Returns the current number of cycles according to the internal cycle counter
+uint32_t getCycles(){
 	return *DWT_CYCCNT;
 }
