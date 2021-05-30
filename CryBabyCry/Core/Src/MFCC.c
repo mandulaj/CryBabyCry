@@ -1,4 +1,10 @@
-
+/*
+ * CryBabyCry - Code implementation
+ * Copyright (c) 2021 Jakub Mandula
+ *
+ * This code is released under the MIT License.
+ * For conditions of distribution and use, see the license in LICENSE
+ */
 
 #include <stdio.h>
 #include <stdbool.h>
@@ -13,52 +19,39 @@
 
 #include "math.h"
 
-
+#include "CycleCounter.h"
 
 //static q31_t q31_iir_state[4];
 static float32_t float_iir_state[4];
 
 static float32_t Process_work_buffer[FRAME_LENGTH];
-static float32_t Process_fft_output[FRAME_LENGTH];
+static float32_t Process_fft_output[FRAME_LENGTH+2]; // Account for rfft being N+1
+
+static float32_t dct_pState[N_FILTS*2];
+
 
 
 static arm_biquad_casd_df1_inst_f32 iir_inst;
 static arm_rfft_fast_instance_f32  f32_fft_inst;
-
-
-static const uint32_t MFCC_bins[] = {
-				  0,   0,   1,   2,   3,   4,   5,   6,   8,   9,  10,  11,  13,
-				 14,  16,  17,  19,  20,  22,  24,  26,  28,  30,  32,  34,  36,
-				 39,  41,  44,  46,  49,  52,  55,  58,  61,  64,  68,  71,  75,
-				 79,  83,  87,  91,  96, 101, 106, 111, 116, 121, 127, 133, 139,
-				146, 152, 159, 166, 174, 182, 190, 198, 207, 216, 225, 235, 245,
-				256};
-
-
-
-
-
-
+static arm_rfft_fast_instance_f32  inst_rfft;
 
 
 
 void MFCC_Init(){
 	arm_biquad_cascade_df1_init_f32(&iir_inst, 1, float_biquad, float_iir_state);
 	arm_rfft_fast_init_f32(&f32_fft_inst, FRAME_LENGTH);
+	arm_rfft_fast_init_f32(&inst_rfft, N_FILTS);
 }
 
 
 
 
 
-float32_t dct_pState[N_FILTS*2];
-
 void MFCC_Process_Frame(q15_t *inputBuf, float32_t *mfcc_out){
 	float32_t mfs_output[N_FILTS];
 
 	// Copy raw buffer into a float work buffer
 	arm_q15_to_float(inputBuf, Process_work_buffer, FRAME_LENGTH);
-
 	// Cyclesb: 9054
 	// DC removing filter
 	arm_biquad_cascade_df1_f32(&iir_inst, Process_work_buffer, Process_work_buffer, FRAME_LENGTH);
@@ -67,51 +60,45 @@ void MFCC_Process_Frame(q15_t *inputBuf, float32_t *mfcc_out){
 	//		  arm_biquad_cascade_df1_init_q31(&iir_inst2, 1, q31_biquad, q31_iir_state, 1);
 	//		  arm_biquad_cascade_df1_q31(&iir_inst2, buffer, bufferout, FFT_LEN);
 
-
-
 	// Multiply by hamming window
 	arm_mult_f32(Process_work_buffer, float_hamming_512, Process_work_buffer, FRAME_LENGTH);
 
 	// FFT input(Process_work_buffer) gets modified
 	arm_rfft_fast_f32(&f32_fft_inst, Process_work_buffer, Process_fft_output, 0);
 
-	// The rfft function sometimes makes the DC coef complex
+	// The rfft function outputs the upper coeff in second position
 	// Make sure the DC is real
+	Process_fft_output[FRAME_LENGTH] = Process_fft_output[1];
 	Process_fft_output[1] = 0; // Set complex component to 0
+	Process_fft_output[FRAME_LENGTH+1] = 0; // Set complex component to 0
 
 	// Compute magnitude
 	// result is half of the FRAME_LENGTH (half of spectrum)
-	arm_cmplx_mag_f32(Process_fft_output, Process_fft_output, FRAME_LENGTH/2);
-
+	arm_cmplx_mag_f32(Process_fft_output, Process_fft_output, (FRAME_LENGTH/2) + 1);
 
 	memset(mfs_output, 0, N_FILTS*sizeof(*mfs_output));
 
 	/* For each filter */
-	for(uint32_t m = 1; m < N_FILTS+1; m++){
-		uint32_t f_m_minus = MFCC_bins[m-1];
-		uint32_t f_m = MFCC_bins[m];
-		uint32_t f_m_plus = MFCC_bins[m+1];
+	const float32_t *pBins_factors = MFCC_bins_factors;
+	// For each mel bin m
+	for(uint32_t m = 0; m < N_FILTS; m++){
+		uint32_t bin_pos = MFCC_bins_start[m]; // Bin position in FFT spectrum
+		uint32_t count = MFCC_bins_length[m];  // Number of bins for current mel
+		do {
 
-		// Lower half of weighted bin
-		for(uint32_t k = f_m_minus; k < f_m; k++){
-			mfs_output[m-1] += Process_fft_output[k] *
-					(float32_t)(k - MFCC_bins[m - 1])/(float32_t)(MFCC_bins[m] - MFCC_bins[m - 1]);
-		}
+			// Scale FFT bin with given bin factor
+			mfs_output[m] += Process_fft_output[bin_pos++] * (*pBins_factors++);
+			count--;
+		} while (count > 0);
 
-		// Upper half of weighted bin
-		for(uint32_t k = f_m; k < f_m_plus; k++){
-			mfs_output[m-1] += Process_fft_output[k] *
-					(float32_t)(MFCC_bins[m + 1] - k)/(float32_t)(MFCC_bins[m + 1] - MFCC_bins[m]);
-		}
+
 	}
-
 
 	//	  float32_t mean;
 	//	  arm_mean_f32(output, N_FILTS, &mean);
 	for (int i = 0; i < N_FILTS; i++){
-		mfs_output[i] = 10.0 * log10f(fmaxf(1e-9,mfs_output[i]));
+		mfs_output[i] = 10.0f * log10f(fmaxf(1e-9,mfs_output[i]));
 	}
-
 
 	dct2_64_f32(dct_pState, mfs_output, mfcc_out);
 
@@ -122,21 +109,11 @@ void MFCC_Process_Frame(q15_t *inputBuf, float32_t *mfcc_out){
 
 
 
-
-
-
-
-
-#define dtc2_N 64
-
-
 void dct2_64_f32(float32_t * pState, float32_t * pIn, float32_t * pOut){
 	float32_t *pS1, *pS2, *pbuff;
 	int32_t i;
 
-	arm_rfft_fast_instance_f32 inst_rfft;
 
-	arm_rfft_fast_init_f32(&inst_rfft, N_FILTS);
 
 	// Clear the pState buffer
 	memset(pState, 0, N_FILTS * 2 * sizeof(*pState));
@@ -186,7 +163,7 @@ void dct2_64_f32(float32_t * pState, float32_t * pIn, float32_t * pOut){
 	pS1 = pState;
 
 	/* Initializing the loop counter to N/4 instead of N for loop unrolling */
-	i = dtc2_N >> 2U;
+	i = N_FILTS >> 2U;
 
 	/* Processing with loop unrolling 4 times as N is always multiple of 4.
 	* Compute 4 outputs at a time */
@@ -203,20 +180,21 @@ void dct2_64_f32(float32_t * pState, float32_t * pIn, float32_t * pOut){
 	} while (i > 0U);
 
 
-
 	/* ---------------------------------------------------------
 	*     Step2: Calculate RFFT for N-point input
 	* ---------------------------------------------------------- */
 	/* pInlineBuffer is real input of length N , pState is the complex output of length 2N */
 	arm_rfft_fast_f32 (&inst_rfft, pIn, pState, 0);
 
-	pState[1] = 0; // Set DC coef to 0
+	pState[N_FILTS] = pState[1];
+	pState[1] = 0; 			// Set DC coef to 0
+	pState[N_FILTS+1] = 0;
 
 	/* Processing with loop unrolling 4 times as N is always multiple of 4.
 	* Compute 4 outputs at a time */
 
 	float32_t *half1 = pState + 2;
-	float32_t *half2 = pState + dtc2_N*2-1;
+	float32_t *half2 = pState + N_FILTS*2-1;
 	do
 	{
 		/* Writing the re-ordered output back to inplace input buffer */
@@ -231,7 +209,7 @@ void dct2_64_f32(float32_t * pState, float32_t * pIn, float32_t * pOut){
 	*  Step3: Multiply the FFT output with the weights.
 	*----------------------------------------------------------------------*/
 	// Multiply with 2 * np.exp(-1j*pi*k/(2*N)) * orth
-	arm_cmplx_mult_cmplx_f32 (pState, dct_weights_64_orth, pState, dtc2_N);
+	arm_cmplx_mult_cmplx_f32 (pState, dct_weights_64_orth, pState, N_FILTS);
 
 	// Only output N_CEPS ceps
 	i = N_CEPS;
@@ -242,9 +220,6 @@ void dct2_64_f32(float32_t * pState, float32_t * pIn, float32_t * pOut){
 		pS1++;
 		i--;
 	} while(i > 0);
-
-
-
 
 }
 

@@ -197,8 +197,8 @@ def my_calc_mfs(data, config, gain=1):
 
     # print("Log Ceps:")
     # print(librosa.power_to_db(ceps)[:1])
-    res = dct(librosa.power_to_db(ceps)*gain, norm='ortho', axis=1, type=2)[:,:]
-    res[:,32] = 0 # MCU can not calculate that coefficient
+    res = dct(librosa.power_to_db(ceps)*gain, norm='ortho', axis=1, type=2)
+    # res[:,32] = 0 # MCU can not calculate that coefficient
     return res
 
 
