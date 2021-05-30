@@ -7,6 +7,8 @@ import tqdm
 
 from tools import cached, zero_pad
 
+import gzip
+
 
 from scipy.io import wavfile
 from scipy.signal import resample
@@ -37,12 +39,23 @@ def load_data(categories, new_rate):
     for cat, paths in categories.items():
         audio_data = []
         for path in tqdm.tqdm(paths):
-            sampling_rate, data = wavfile.read(path)
+            if os.path.splitext(path)[1] == ".wav":
+                sampling_rate, data = wavfile.read(path)
+            elif os.path.splitext(path)[1] == ".gz":
+                with gzip.open(path, "rb") as f:
+                    sampling_rate, data = wavfile.read(f)
+            else:
+                print("Unknown file type {}".format(path))
+                continue
+
             l = len(data)
+
             data = np.array(data, dtype=np.float32)
             if sampling_rate !=new_rate:
                 number_of_samples = round(len(data) * float(new_rate) / sampling_rate)
                 data = resample(data, number_of_samples)
+            
+            
             data = np.array(data, dtype=np.float32) / 2**15
 
             #print(data.shape, sampling_rate, l/sampling_rate, len(data)/new_rate, path)
@@ -76,8 +89,25 @@ def getESC50(path):
     return categories
 
 
-def get_audio_file_yt(path):
-    return os.path.join(path, "youtube/1h16k_baby.wav")
+def get_audio_file_yt_cry(path):
+    return [os.path.join(path, "youtube/cry16k.wav")]
+
+
+def get_audio_file_yt_laugh(path):
+    return [os.path.join(path, "youtube/laugh16k.wav")]
+
+def get_adv_samp(path):
+    return [os.path.join(path, "adversarial_samples.wav")]
+
+def get_files_from_audioset(path):
+    files = []
+    path = os.path.join(path, "raw/audioset/babycry")
+    for file in os.listdir(path):
+        file_path = os.path.join(path, file)
+        if os.path.isfile(file_path):
+            files.append(file_path)
+    return files
+
 
 
 
@@ -90,6 +120,8 @@ def get_data(path, sf):
     # audios_baby2 = get_audio_file_yt(path)
     # print(audios_baby2)
 
+    
+
     merged = {"baby_cry": [], "other": []}
 
     for k in audios_esc50:
@@ -101,6 +133,13 @@ def get_data(path, sf):
     for k in audios_baby:
         # print(audios_baby[k])
         merged["baby_cry"] += audios_baby[k]
+
+
+    merged["other"] += get_audio_file_yt_laugh(path)
+    merged["baby_cry"] += get_audio_file_yt_cry(path)
+    merged["other"] += get_adv_samp(path)
+
+    merged["baby_cry"] += get_files_from_audioset(path)
 
     # merged["baby_cry"] += [audios_baby2]
     # print(merged['other'][1]) 

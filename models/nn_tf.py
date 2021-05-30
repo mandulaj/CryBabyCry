@@ -27,7 +27,7 @@ def NN_model(n_frames, n_ceps):
 
     input1= Input(shape=(n_frames,n_ceps,1),name='input')
 
-    x = Conv2D(filters=8,
+    x = Conv2D(filters=12,
                kernel_size=(4,4),
                padding='same',
                strides=(2,2),
@@ -37,7 +37,7 @@ def NN_model(n_frames, n_ceps):
     x = Activation('relu')(x)
     x = Dropout(dropout)(x)
 
-    x = Conv2D(filters=16,
+    x = Conv2D(filters=24,
                kernel_size=(3,3),
                padding='same',
                strides=(2,2),
@@ -49,7 +49,7 @@ def NN_model(n_frames, n_ceps):
 
     x = MaxPooling2D(pool_size=(1,5), padding='same')(x)
 
-    x = Conv2D(filters=32,
+    x = Conv2D(filters=48,
                kernel_size=(3,3),
                padding='same',
                strides=(2,2),
@@ -59,7 +59,7 @@ def NN_model(n_frames, n_ceps):
     x = Activation('relu')(x)
     x = Dropout(dropout)(x)
 
-    x = Conv2D(filters=64,
+    x = Conv2D(filters=96,
                kernel_size=(3,3),
                padding='same',
                kernel_initializer='he_normal',
