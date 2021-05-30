@@ -17,6 +17,10 @@ void CPB_copyFull(struct CPB *cpb){
 	memcpy(cpb->half_frame, cpb->full_frame + (FRAME_LENGTH/2), FRAME_LENGTH/2 * sizeof(uint16_t));
 }
 
+void CPB_reset(struct CPB *cpb){
+	memset(cpb->half_frame, 0, (FRAME_LENGTH + FRAME_LENGTH/2) * sizeof(uint16_t));
+}
+
 
 void print_buffer_grid_f32(float32_t * buf, uint32_t row, uint32_t columns){
 	for (uint32_t r = 0; r < row; r++){
@@ -163,8 +167,17 @@ void print_buffer_q15(q15_t *buf, uint32_t len){
 
 int _write(int fd, char * ptr, int len)
 {
-  HAL_USART_Transmit(&husart1, (uint8_t *) ptr, len, HAL_MAX_DELAY);
-  return len;
+	HAL_USART_Transmit(&husart1, (uint8_t *) ptr, len, HAL_MAX_DELAY);
+
+	return len;
+}
+
+
+int _read(int fd, char * ptr, int len)
+{
+	HAL_USART_Receive(&husart1, (uint8_t *) ptr, len, HAL_MAX_DELAY);
+
+	return len;
 }
 
 
