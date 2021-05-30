@@ -15,6 +15,10 @@
 #define FRAME_LENGTH 512   // Number of sample in each MFCC frame ( should be power of 2)
 #define REC_BUF_LENGTH (2*FRAME_LENGTH) // Buffer length for two consecutive frames
 
+#define MODE_VALIDATION 0
+#define MODE_DEMO 1
 
+
+#define CURRENT_MODE MODE_DEMO
 
 #endif

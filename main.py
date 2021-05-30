@@ -131,14 +131,24 @@ def load_dataset(config=CONFIG):
 
     print("Segmenting audio")
     data = segment_data(data, config["sample_length"])
-    # print(len(data['baby_cry']), len(data['other']))
+    
+    print("Raw number of Cry: {}, Other: {}".format(len(data['baby_cry']), len(data['other'])))
 
-    indexes = np.arange(len(data['other']))
+    # Cap the number of samples
+    if len(data['baby_cry']) <  len(data['other']):
+        cap = len(data['other'])
+        indexes = np.arange(len(data['other']))
+        indexes = np.random.choice( indexes, size=len( data["baby_cry"] ), replace=False)
+        data["other"] = np.array(data["other"])[indexes]
+    else:
+        cap = len(data['baby_cry'])
+        indexes = np.arange(len(data['baby_cry']))
+        indexes = np.random.choice( indexes, size=len( data["other"] ), replace=False)
+        data["baby_cry"] = np.array(data["baby_cry"])[indexes]
+        
+    
+    print("Balanced number of Cry: {}, Other: {}".format(len(data['baby_cry']), len(data['other'])))
 
-    indexes = np.random.choice( indexes, size=len( data["baby_cry"] ), replace=False)
-    data["other"] = np.array(data["other"])[indexes]
-
-    print(len(data['baby_cry']), len(data['other']))
 
 
     data_inputs = []

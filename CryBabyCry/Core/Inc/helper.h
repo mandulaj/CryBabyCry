@@ -18,6 +18,7 @@ struct CPB{
 
 void CPB_Init(struct CPB *cpb);
 void CPB_copyFull(struct CPB *cpb);
+void CPB_reset(struct CPB *cpb);
 
 
 void print_buffer_f32(float32_t *buf, uint32_t len);

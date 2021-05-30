@@ -39,10 +39,9 @@
 #include "tim.h"
 
 
-#include "ai_datatypes_defines.h"
-#include "ai_platform.h"
-#include "mfs_model.h"
-#include "mfs_model_data.h"
+#include "arm_math.h"
+
+#include "ai.h"
 
 /* USER CODE END Includes */
 
@@ -73,8 +72,8 @@ extern int32_t RecBuff[REC_BUF_LENGTH];
 static uint32_t cycles[MFCC_LENGTH/2];
 
 
-static float32_t MFCC_Buffer1[MFCC_LENGTH][N_CEPS];
-static float32_t MFCC_Buffer2[MFCC_LENGTH][N_CEPS];
+float32_t MFCC_Buffer1[MFCC_LENGTH][N_CEPS];
+float32_t MFCC_Buffer2[MFCC_LENGTH][N_CEPS];
 
 
 static struct CPB cpb_struct;
@@ -182,9 +181,18 @@ void StartDefaultTask(void *argument)
 {
   /* USER CODE BEGIN StartDefaultTask */
 	// Start the Microphone Filtering
+
+#if(CURRENT_MODE == MODE_VALIDATION)
+
+	Validation_Start();
+
+#elif(CURRENT_MODE == MODE_DEMO)
 	if(HAL_OK != HAL_DFSDM_FilterRegularStart_DMA(&hdfsdm1_filter0, RecBuff, REC_BUF_LENGTH)){
-	  Error_Handler();
+		  Error_Handler();
 	}
+#endif
+
+
 
 	uint32_t ulNotifiedValue;
 	while(1){
@@ -205,7 +213,6 @@ void StartDefaultTask(void *argument)
 }
 
 /* USER CODE BEGIN Header_vTask_audio_preproces */
-volatile int proc = 1;
 /**
 * @brief Function implementing the ae
 * @retval None
@@ -229,8 +236,6 @@ void vTask_audio_preproces(void *argument)
 		// Wait for the IRS to trigger the processing
 		xTaskNotifyWait(0x00, ULONG_MAX, &ulNotifiedValue, portMAX_DELAY);
 
-		if(proc == 0)
-			continue;
 
 		//printf("Task Started: %lx\n", ulNotifiedValue);
 		ResetTimer();
@@ -284,67 +289,6 @@ void vTask_audio_preproces(void *argument)
 /* USER CODE BEGIN Header_vTask_nn_inference */
 
 
-AI_ALIGNED(4) ai_u8 activations[AI_MFS_MODEL_DATA_ACTIVATIONS_SIZE] ;
-
-AI_ALIGNED(4) ai_i8 in_data[AI_MFS_MODEL_IN_1_SIZE_BYTES] __attribute__((section(".ram2_bss")));
-AI_ALIGNED(4) ai_i8 out_data[AI_MFS_MODEL_OUT_1_SIZE_BYTES] __attribute__((section(".ram2_bss")));
-
-ai_handle mfs_model = AI_HANDLE_NULL;
-
-ai_buffer ai_input[AI_MFS_MODEL_IN_NUM] = AI_MFS_MODEL_IN;
-ai_buffer ai_output[AI_MFS_MODEL_OUT_NUM] = AI_MFS_MODEL_OUT;
-
-
-
-
-extern const ai_intq_info_list input_output_intq;
-static const float32_t AI_INPUT_ZERO_POINT = 6.0f;
-static const float32_t AI_INPUT_SCALE = 0.060015641152858734f;
-
-
-
-void NN_init(){
-	ai_error ai_err;
-
-
-	ai_network_params ai_params = {
-				AI_MFS_MODEL_DATA_WEIGHTS(ai_mfs_model_data_weights_get()),
-				AI_MFS_MODEL_DATA_ACTIVATIONS(activations)
-	};
-
-	ai_err = ai_mfs_model_create(&mfs_model, AI_MFS_MODEL_DATA_CONFIG);
-	if(ai_err.type != AI_ERROR_NONE){
-		printf("Error, could not create NN instance\n");
-		vTaskSuspend(NULL);
-	}
-
-
-	if(!ai_mfs_model_init(mfs_model, &ai_params)){
-		printf("Error, could not init NN\n");
-		vTaskSuspend(NULL);
-	}
-}
-
-
-void NN_inference(ai_i8 *input_data, ai_i8 *output_data){
-
-	ai_i32 nbatch;
-
-
-	ai_input[0].n_batches = 1;
-	ai_input[0].data = AI_HANDLE_PTR(in_data);
-	ai_output[0].n_batches = 1;
-	ai_output[0].data = AI_HANDLE_PTR(out_data);
-
-
-	nbatch  = ai_mfs_model_run(mfs_model, ai_input, ai_output);
-	if (nbatch != 1) {
-		printf("Error, could not run NN inference\n");
-		vTaskSuspend(NULL);
-	}
-
-}
-
 
 
 
@@ -364,16 +308,18 @@ void vTask_nn_inference(void *argument)
 	uint32_t ulNotifiedValue;
 	float32_t *pMFCC_Buff;
 	uint32_t buffer_counter = 0;
+	ai_i8 *nn_input_buffer;
+	ai_i8 *nn_output_buffer;
+	int8_t cry,other;
 
-//	printf("%f scale\n", *input_output_intq.info->scale);
-//	printf("%f zero\n", (float32_t) *(uint8_t *)input_output_intq.info->zeropoint);
-//
-//	while(1);
-	NN_init();
-//	while(1);
+	uint32_t timestamp;
 
 
 
+	AI_NN_init();
+
+	// Get input and output buffer pointers
+	AI_get_buffers(&nn_input_buffer, &nn_output_buffer);
 
 
 	printf("Start Free Stack nn_inf: %ld\n", uxTaskGetStackHighWaterMark(NULL));
@@ -390,9 +336,8 @@ void vTask_nn_inference(void *argument)
 		// Swap the buffer pointers
 
 
-		float32_t mean, std;
-		arm_mean_f32(pMFCC_Buff, MFCC_LENGTH*N_CEPS, &mean);
-		arm_std_f32(pMFCC_Buff, MFCC_LENGTH*N_CEPS, &std);
+
+
 
 		//151365 cycles
 		//arm_offset_f32(pMFCC_Buff, -mean, pMFCC_Buff, MFCC_LENGTH*N_CEPS);
@@ -401,44 +346,36 @@ void vTask_nn_inference(void *argument)
 		// Subtract the mean and divide by std
 		// combined with divide by scale and add zero point
 
-		float32_t offset, scale;
+
 		//offset = AI_INPUT_ZERO_POINT * AI_INPUT_SCALE * std - mean;
 		//scale = AI_INPUT_SCALE * std * 128.0f; // Divide Factor of 128 because arm_float_to_q7 multiplies by 128
-		offset = -mean;
-		scale = 1.0f/std;
 
-		fast_offset_scale_f32(pMFCC_Buff, offset, scale, pMFCC_Buff, MFCC_LENGTH*N_CEPS);
 
-		arm_scale_f32(pMFCC_Buff, 1.0f/AI_INPUT_SCALE, pMFCC_Buff, MFCC_LENGTH*N_CEPS);
-		arm_offset_f32(pMFCC_Buff, AI_INPUT_ZERO_POINT, pMFCC_Buff, MFCC_LENGTH*N_CEPS);
-
-		arm_scale_f32(pMFCC_Buff, 1.0/128.0f, pMFCC_Buff, MFCC_LENGTH*N_CEPS);
-
-		// Convert to uint8
-		arm_float_to_q7(pMFCC_Buff, in_data, MFCC_LENGTH*N_CEPS);
+		AI_quantize(pMFCC_Buff, nn_input_buffer, MFCC_LENGTH*N_CEPS);
 
 
 
 		HAL_TIM_Base_Start(&htim16);
 		htim16.Instance->CNT = 0;
-		uint32_t timestamp = htim16.Instance->CNT;
+		timestamp = htim16.Instance->CNT;
 
-		NN_inference(in_data, out_data);
+		AI_NN_inference(nn_input_buffer, nn_output_buffer);
 
-		int8_t cry,other;
 
-		cry = out_data[0];
-		other = out_data[1];
+
+		cry = nn_output_buffer[0];
+		other = nn_output_buffer[1];
 		printf("================\n");
 		printf("Detected: %s\n",(cry>other)? "CRY" : "OTHER");
 		printf("================\n");
-		printf("cry: %d other: %d Inference Time (us): %ld\n", cry, other, htim16.Instance->CNT - timestamp);
+		printf("cry: %d other: %d Inference Time (ms): %f\n", cry, other, (htim16.Instance->CNT - timestamp)/100.0f);
 
 		if (cry > other){
 			HAL_GPIO_WritePin(LED1_GPIO_Port, LED1_Pin, 1);
 		} else {
 			HAL_GPIO_WritePin(LED1_GPIO_Port, LED1_Pin, 0);
 		}
+		print_buffer_q31(cycles, 32);
 	}
   /* USER CODE END vTask_nn_inference */
 }
