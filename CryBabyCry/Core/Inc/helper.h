@@ -1,3 +1,12 @@
+/*
+ * CryBabyCry - Code implementation
+ * Copyright (c) 2021 Jakub Mandula
+ *
+ * This code is released under the MIT License.
+ * For conditions of distribution and use, see the license in LICENSE
+ */
+
+
 #ifndef __HELPER_H
 #define __HELPER_H
 
