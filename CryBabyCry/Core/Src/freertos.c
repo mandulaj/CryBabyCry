@@ -375,7 +375,7 @@ void vTask_nn_inference(void *argument)
 		} else {
 			HAL_GPIO_WritePin(LED1_GPIO_Port, LED1_Pin, 0);
 		}
-		print_buffer_q31(cycles, 32);
+		print_buffer_q31((q31_t *)cycles, 32);
 	}
   /* USER CODE END vTask_nn_inference */
 }
