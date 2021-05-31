@@ -1,5 +1,5 @@
 #include "stm32l4xx_hal.h"
-
+#include "config.h"
 
 #ifndef CYCLECOUNTER
 #define CYCLECOUNTER
@@ -7,8 +7,6 @@
 
 
 void ResetTimer(void);
-
-uint32_t getCycles(void);
 
 void InitTimer();
 
@@ -37,6 +35,32 @@ inline void StartTimer(){
 inline void StopTimer(){
 	*DWT_CONTROL = *DWT_CONTROL & 0 ; // disable the counter
 }
+
+
+inline uint32_t getCycles(){
+	return *DWT_CYCCNT;
+}
+
+
+
+
+uint32_t TIME_STAMPS[N_TIME_STAMPS];
+
+
+#ifdef ENABLE_TIME_STAMPS
+
+#define TS_START() ResetTimer(); StartTimer()
+#define TS_STAMP(a) TIME_STAMPS[a] = getCycels()
+#define TS_STOP() StopTimer()
+
+#else
+
+#define TS_START() (void)0
+#define TS_STAMP(a) (void)0
+#define TS_STOP() (void)0
+
+
+#endif
 
 
 
