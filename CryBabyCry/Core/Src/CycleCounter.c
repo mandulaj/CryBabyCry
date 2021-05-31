@@ -18,8 +18,3 @@ void ResetTimer(){
 
 }
 
-
-// Returns the current number of cycles according to the internal cycle counter
-uint32_t getCycles(){
-	return *DWT_CYCCNT;
-}
