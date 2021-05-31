@@ -50,7 +50,7 @@ uint32_t TIME_STAMPS[N_TIME_STAMPS];
 #ifdef ENABLE_TIME_STAMPS
 
 #define TS_START() ResetTimer(); StartTimer()
-#define TS_STAMP(a) TIME_STAMPS[a] = getCycels()
+#define TS_STAMP(a) TIME_STAMPS[a] = getCycles()
 #define TS_STOP() StopTimer()
 
 #else
