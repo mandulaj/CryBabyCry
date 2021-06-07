@@ -74,29 +74,33 @@ void MX_FREERTOS_Init(void);
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
 
-
+// Handle for Task handling audio processing
 extern osThreadId_t audio_preprocesHandle;
 
+// Buffer for holding DMA transfered samples form DFSDM
 int32_t RecBuff[REC_BUF_LENGTH] __attribute__((section(".ram2_bss")));
 
+// HEAP for FreeRTOS  manually placed in the RAM2
 uint8_t ucHeap[ configTOTAL_HEAP_SIZE ] __attribute__((section(".ram2_bss")));
 
 
-
+/* DFSDM Half and Full complete DMA Transfer callbacks */
 void HAL_DFSDM_FilterRegConvHalfCpltCallback(DFSDM_Filter_HandleTypeDef *hdfsdm_filter)
 {
 	BaseType_t xHigherPriorityTaskWoken = pdFALSE;
 
+  // Notifies audioprocessing Task that first half of the RecBuff has been filled
 	xTaskNotifyFromISR(audio_preprocesHandle, 1, eSetValueWithOverwrite, &xHigherPriorityTaskWoken);
-	portYIELD_FROM_ISR( xHigherPriorityTaskWoken );
+	portYIELD_FROM_ISR( xHigherPriorityTaskWoken ); // Yield to Higher priority Task
 }
 
 void HAL_DFSDM_FilterRegConvCpltCallback(DFSDM_Filter_HandleTypeDef *hdfsdm_filter)
 {
 	BaseType_t xHigherPriorityTaskWoken = pdFALSE;
-
+  
+  // Notifies audioprocessing Task that second half of the RecBuff has been filled
 	xTaskNotifyFromISR(audio_preprocesHandle, 2, eSetValueWithOverwrite, &xHigherPriorityTaskWoken);
-	portYIELD_FROM_ISR( xHigherPriorityTaskWoken );
+	portYIELD_FROM_ISR( xHigherPriorityTaskWoken ); // Yield to Higher priority Task
 }
 
 

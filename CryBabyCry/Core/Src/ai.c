@@ -22,7 +22,7 @@
 // Buffer for storing activations
 static AI_ALIGNED(4) ai_u8 model_activations[AI_MFS_MODEL_DATA_ACTIVATIONS_SIZE] ;
 
-// Buffers for input and output data
+// Buffers for input and output data 
 static AI_ALIGNED(4) ai_i8 in_model_data[AI_MFS_MODEL_IN_1_SIZE_BYTES] __attribute__((section(".ram2_bss")));
 static AI_ALIGNED(4) ai_i8 out_model_data[AI_MFS_MODEL_OUT_1_SIZE_BYTES] __attribute__((section(".ram2_bss")));
 
@@ -41,8 +41,6 @@ extern const ai_intq_info_list input_output_intq;
 // Quantization scale and offset
 static const float32_t AI_INPUT_ZERO_POINT = 3.0f;
 static const float32_t AI_INPUT_SCALE = 0.05986613780260086f;
-
-
 
 
 
@@ -96,6 +94,18 @@ void AI_quantize(float32_t * float_buffer, ai_i8 * quant_buffer, uint32_t length
 	float32_t offset, scale;
 	float32_t mean, std;
 
+	// 151365 cycles
+	//arm_offset_f32(pMFCC_Buff, -mean, pMFCC_Buff, MFCC_LENGTH*N_CEPS);
+	//arm_scale_f32(pMFCC_Buff, 1.0f/std, pMFCC_Buff, MFCC_LENGTH*N_CEPS);
+
+	// Subtract the mean and divide by std
+	// combined with divide by scale and add zero point
+
+
+	//offset = AI_INPUT_ZERO_POINT * AI_INPUT_SCALE * std - mean;
+	//scale = AI_INPUT_SCALE * std * 128.0f; // Divide Factor of 128 because arm_float_to_q7 multiplies by 128
+
+	// Calculate the mean and std of the MFCC samples
 	arm_mean_f32(float_buffer, length, &mean);
 	arm_std_f32(float_buffer, length, &std);
 

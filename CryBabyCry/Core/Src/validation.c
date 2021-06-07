@@ -64,10 +64,11 @@ bool Process_validation_Example(){
 
 	float32_t CycleTimes_Quantize, CycleTimes_inference;
 
-
+	// Clear the CPB 
 	CPB_reset(&cpb_struct);
 	AI_get_buffers(&nn_input_buffer, &nn_output_buffer);
 
+	// Prepare timer for Benchmarking
 	HAL_TIM_Base_Start(&htim16);
 	htim16.Instance->CNT = 0;
 
@@ -76,8 +77,8 @@ bool Process_validation_Example(){
 
 	// Get label
 	uint8_t label;
-	HAL_UART_Transmit(&huart4, (uint8_t *)"\n", 1U, 0xFFFF);
-	HAL_UART_Receive(&huart4, (uint8_t *)&label, 1, 0xFFFF);
+	HAL_UART_Transmit(&huart4, (uint8_t *)"\n", 1U, 0xFFFF); // Send \n to indicate we are ready
+	HAL_UART_Receive(&huart4, (uint8_t *)&label, 1, 0xFFFF); // Next byte contains label
 
 
 	do{
@@ -85,8 +86,8 @@ bool Process_validation_Example(){
 		// We can get next char
 		ResetTimer();
 		StartTimer();
-		HAL_UART_Transmit(&huart4, (uint8_t *)"\n", 1U, 0xFFFF);
-		HAL_UART_Receive_DMA(&huart4, (uint8_t *)cpb_struct.full_frame, FRAME_LENGTH*2);
+		HAL_UART_Transmit(&huart4, (uint8_t *)"\n", 1U, 0xFFFF); // Send \n to indicate we are ready to receive
+		HAL_UART_Receive_DMA(&huart4, (uint8_t *)cpb_struct.full_frame, FRAME_LENGTH*2); // Read one FRAME
 		while(!done);
 		done = false;
 		StopTimer();
@@ -94,10 +95,12 @@ bool Process_validation_Example(){
 
 		ResetTimer();
 		StartTimer();
+
+		// Run Frame processing like usual (2 overlapping windows)
 		MFCC_Process_Frame(cpb_struct.half_frame, MFCC_Buffer1[MFCC_index++]);
 		MFCC_Process_Frame(cpb_struct.full_frame, MFCC_Buffer1[MFCC_index++]);
 
-		// Swap buffers
+		// Swap window buffers
 		CPB_copyFull(&cpb_struct);
 		StopTimer();
 		CycleTimes_MFCC[MFCC_index/2 - 1] = getCycles();
@@ -107,6 +110,7 @@ bool Process_validation_Example(){
 
 	ResetTimer();
 	StartTimer();
+	// Quantize the MFCC
 	AI_quantize((float32_t *)MFCC_Buffer1, nn_input_buffer, MFCC_LENGTH*N_CEPS);
 	StopTimer();
 	CycleTimes_Quantize = getCycles();
@@ -115,6 +119,8 @@ bool Process_validation_Example(){
 
 	ResetTimer();
 	StartTimer();
+
+	// Run inference
 	AI_NN_inference(nn_input_buffer, nn_output_buffer);
 	StopTimer();
 	CycleTimes_inference = getCycles();
@@ -133,6 +139,7 @@ bool Process_validation_Example(){
 	arm_mean_f32(CycleTimes_COM, MFCC_LENGTH/2, &mean_com);
 	mean_com *= MFCC_LENGTH/2;
 
+	// Print performance statistics and predictions on the quantized results
 	printf("================\n");
 	printf("Detected: %s True: %s\n",(cry>other)? "CRY" : "OTHER", (!label)? "CRY" : "OTHER");
 	printf("================\n");
@@ -145,6 +152,7 @@ bool Process_validation_Example(){
 			);
 	printf("Total: %fms\n", (timestamp2- timestamp)/100.0f);
 
+	// Return the result
 	if((cry<other) == label){
 		printf("Correct\n");
 		return true;
@@ -155,26 +163,27 @@ bool Process_validation_Example(){
 	}
 }
 
-#define NUM_VAL 1000
 
 
 void Validation_Start(){
 
 
-
+	// Init the NN
 	AI_NN_init();
-
+	// Init the CPB
 	CPB_Init(&cpb_struct);
+
+	// Init the counter of correct predictions
 	uint32_t correct = 0;
 
 	printf("Reading into buffer\n");
-//	HAL_UART_Transmit(&huart4, "Hello World\n", 12, 0xFFFF);
 	for(uint32_t i = 0; i < NUM_VAL; i++){
+		// Start processing the samples
 		if(Process_validation_Example())
 			correct += 1;
 	}
 
-
+	// Print result
 	printf("Done\n");
 	printf("====================================\n");
 	printf("====================================\n");
@@ -182,18 +191,10 @@ void Validation_Start(){
 	printf("Overall %ld/%ld correct = %.2f%%\n",correct, NUM_VAL, correct/(float32_t)NUM_VAL*100.0f);
 
 
-
-
-//	AI_NN_inference();
-
-
-
 }
 
 
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *husart){
-
-//	printf("Done reading %s\n", buffer);
 	done = true;
 }
 

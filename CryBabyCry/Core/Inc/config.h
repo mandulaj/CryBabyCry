@@ -25,6 +25,9 @@
 #define FLOAT_MFCC         					// Compute using floats. Disable to use q15
 
 
+#define NUM_VAL 1000                        // In validation mode, number of samples to read
+
+
 // Mode definitions
 #define MODE_VALIDATION 0
 #define MODE_DEMO 1

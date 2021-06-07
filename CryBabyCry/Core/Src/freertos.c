@@ -183,26 +183,27 @@ void StartDefaultTask(void *argument)
 	// Start the Microphone Filtering
 
 #if(CURRENT_MODE == MODE_VALIDATION)
-
+	// Starts validation by reading data from UART and displaying the predictions
 	Validation_Start();
 
 #elif(CURRENT_MODE == MODE_DEMO)
+	// Start DFSDM DMA Transfers
 	if(HAL_OK != HAL_DFSDM_FilterRegularStart_DMA(&hdfsdm1_filter0, RecBuff, REC_BUF_LENGTH)){
 		  Error_Handler();
 	}
 #endif
 
 
-
+	/* Here would be the code of the primary task. For now the Task just waits to be notified */
 	uint32_t ulNotifiedValue;
 	while(1){
 		xTaskNotifyWait(0x00, ULONG_MAX, &ulNotifiedValue, portMAX_DELAY);
 
+		// Print some Debug information
 		printf("Stack water marks:\n");
 		printf("audio_preprocessing Used Stack: %ld Bytes of %ld Bytes\n", audio_preproces_attributes.stack_size - uxTaskGetStackHighWaterMark( audio_preprocesHandle)*4,audio_preproces_attributes.stack_size);
 		printf("nn_inference:       Used Stack: %ld Bytes of %ld Bytes\n", nn_inference_attributes.stack_size - uxTaskGetStackHighWaterMark( nn_inferenceHandle )*4, nn_inference_attributes.stack_size);
 
-//		USART1_printf("%f\n", RecBuff[0]/0.3);
 		printf("default:            Used Stack:  %ld Bytes of %ld Bytes\n", defaultTask_attributes.stack_size- uxTaskGetStackHighWaterMark( NULL )*4, defaultTask_attributes.stack_size);
 
 		printf("minimumFreeHeap %d\n", xPortGetMinimumEverFreeHeapSize());
@@ -214,7 +215,7 @@ void StartDefaultTask(void *argument)
 
 /* USER CODE BEGIN Header_vTask_audio_preproces */
 /**
-* @brief Function implementing the ae
+* @brief Task for processing the raw audio into MFCC features
 * @retval None
 */
 /* USER CODE END Header_vTask_audio_preproces */
@@ -233,35 +234,49 @@ void vTask_audio_preproces(void *argument)
 	for(;;)
 	{
 		//	uint16_t new_input_buf = circular_proc_buffer->full_frame;
-		// Wait for the IRS to trigger the processing
+		// Wait for the DFSDM IRS to trigger the processing
 		xTaskNotifyWait(0x00, ULONG_MAX, &ulNotifiedValue, portMAX_DELAY);
 
-
-		//printf("Task Started: %lx\n", ulNotifiedValue);
+		// Start Tracing the processing Time
 		ResetTimer();
 		StartTimer();
 
+		// Select the correct buffer half to be processed
 		int32_t *pRecBuff;
-		if(ulNotifiedValue == 1){
-			pRecBuff = RecBuff;
-		} else if(ulNotifiedValue == 2){
-			pRecBuff = RecBuff + FRAME_LENGTH;
-		} else {
-			continue;
+		switch(ulNotifiedValue) {
+			case 1:
+				pRecBuff = RecBuff;  // Process the first half
+				break;
+			case 2:
+				pRecBuff = RecBuff + FRAME_LENGTH; // Process the second half
+				break;
+			default:
+				continue;
 		}
 
-		// Read new data into
+		// Read new data into cpb buffer
 		for(uint32_t i = 0; i < FRAME_LENGTH; i++){
+			// The Raw samples are contained in the upper 24 bits of the RecBuff [23....8 x x x x x x x x]
+			// The samples must be shifted by 8 bits and then truncated to 16 bit signed values
 			cpb->full_frame[i] = (q15_t)(pRecBuff[i] >> 8);
 		}
 
 
 		// Process previous half plus new half
-		// 72778 Cycles -Ofast 85543 cycles -Og
-		MFCC_Process_Frame(cpb->half_frame, &pMFCC_Buff[(MFCC_index++) * N_CEPS]);
-		MFCC_Process_Frame(cpb->full_frame, &pMFCC_Buff[(MFCC_index++) * N_CEPS]);
 
-		// Swap buffers
+		/*
+			CPB internal buffer:
+			   [0 ... 256 ... 512 ... 767]
+			    ^-- half_frame
+					   ^--- full_frame
+			
+			Reading from half_frame reads half of previous frame plus half of current frame
+			Reading from full_frame reads the full current frame
+		*/
+		MFCC_Process_Frame(cpb->half_frame, &pMFCC_Buff[(MFCC_index++) * N_CEPS]); // Read overlapped previous and current frame
+		MFCC_Process_Frame(cpb->full_frame, &pMFCC_Buff[(MFCC_index++) * N_CEPS]); // Read current frame
+
+		// Copy seond half of current frame into the position of half_frame for next window overlap
 		CPB_copyFull(cpb);
 		StopTimer();
 		cycles[(MFCC_index-1)>>1U] = getCycles();
@@ -271,7 +286,7 @@ void vTask_audio_preproces(void *argument)
 		if(MFCC_index >= MFCC_LENGTH){
 			MFCC_index = 0;
 
-			// Swap the buffer pointer
+			// Swap the MFCC buffer pointer
 			if((void*)pMFCC_Buff == (void*)MFCC_Buffer1){
 				pMFCC_Buff = (float32_t*)MFCC_Buffer2;
 				// Notify nn_inference that we just finished with Buffer1
@@ -315,7 +330,7 @@ void vTask_nn_inference(void *argument)
 	uint32_t timestamp;
 
 
-
+	// Initialize the Cube AI NN
 	AI_NN_init();
 
 	// Get input and output buffer pointers
@@ -327,63 +342,51 @@ void vTask_nn_inference(void *argument)
 	/* Infinite loop */
 	for(;;)
 	{
+		// Wait for the notification from AudioProcessing Task after the MFCC buffer is filled
 		xTaskNotifyWait(0x00, ULONG_MAX, &ulNotifiedValue, portMAX_DELAY);
-//		vTaskSuspend(audio_preprocesHandle);
 
+		// Get the MFCC buffer pointer
 		pMFCC_Buff = (float32_t *)ulNotifiedValue;
 
 		buffer_counter++;
-		// Swap the buffer pointers
 
-
-
-
-
-		//151365 cycles
-		//arm_offset_f32(pMFCC_Buff, -mean, pMFCC_Buff, MFCC_LENGTH*N_CEPS);
-		//arm_scale_f32(pMFCC_Buff, 1.0f/std, pMFCC_Buff, MFCC_LENGTH*N_CEPS);
-
-		// Subtract the mean and divide by std
-		// combined with divide by scale and add zero point
-
-
-		//offset = AI_INPUT_ZERO_POINT * AI_INPUT_SCALE * std - mean;
-		//scale = AI_INPUT_SCALE * std * 128.0f; // Divide Factor of 128 because arm_float_to_q7 multiplies by 128
-
-
+		// Scale and quantize the MFCC features for the NN 
 		AI_quantize(pMFCC_Buff, nn_input_buffer, MFCC_LENGTH*N_CEPS);
 
 
-
+		// Start timing the inference using TIM16
 		HAL_TIM_Base_Start(&htim16);
 		htim16.Instance->CNT = 0;
 		timestamp = htim16.Instance->CNT;
 
+		// Perform inference on the input
 		AI_NN_inference(nn_input_buffer, nn_output_buffer);
 
 
-
+		// Get the prediction
 		cry = nn_output_buffer[0];
 		other = nn_output_buffer[1];
 		printf("================\n");
-		if(cry>other){
-			printf("!!!!!BABY CRYING!!!!!!!\n");
-			printf("!!!!!BABY CRYING!!!!!!!\n");
-			printf("!!!!!BABY CRYING!!!!!!!\n");
-		} else{
-			printf("Detected: Other\n");
 
-		}
-//		printf("Detected: %s\n",(cry>other)? "CRY" : "OTHER");
-		printf("================\n");
-		printf("cry: %d other: %d Inference Time (ms): %f\n", cry, other, (htim16.Instance->CNT - timestamp)/100.0f);
+		// Take the argmax
 
-		if (cry > other){
+		if(cry > other){
+			// Here we detect the Cry, we can trigger a notification or start a task to handle the situation
+
+			printf("!!!!!BABY CRYING!!!!!!!\n");
+			printf("!!!!!BABY CRYING!!!!!!!\n");
+			printf("!!!!!BABY CRYING!!!!!!!\n");
 			HAL_GPIO_WritePin(LED1_GPIO_Port, LED1_Pin, 1);
-		} else {
+
+		} else{
+			// We didn't detect a cry
+			
+			printf("Detected: Other\n");
 			HAL_GPIO_WritePin(LED1_GPIO_Port, LED1_Pin, 0);
 		}
-//		print_buffer_q31((q31_t *)cycles, 32);
+
+		printf("================\n");
+		printf("cry: %d other: %d Inference Time (ms): %f\n", cry, other, (htim16.Instance->CNT - timestamp)/100.0f);
 	}
   /* USER CODE END vTask_nn_inference */
 }

@@ -57,8 +57,13 @@ static arm_rfft_instance_q15  q15_inst_rfft;
 
 void MFCC_Init(){
 #ifdef FLOAT_MFCC
+	// Initialize Biquad filter for DC blocking
 	arm_biquad_cascade_df1_init_f32(&iir_inst, 1, float_biquad, float_iir_state);
+
+	// FFT for Frame spectrum
 	arm_rfft_fast_init_f32(&f32_fft_inst, FRAME_LENGTH);
+
+	// FFT for DCT computation
 	arm_rfft_fast_init_f32(&inst_rfft, N_FILTS);
 #else
 	arm_biquad_cascade_df1_init_q15(&q15_iir_inst, 1, q15_biquad, q15_iir_state, 2);
@@ -80,44 +85,73 @@ void MFCC_Process_Frame(q15_t *inputBuf, float32_t *mfcc_out){
 	TS_START();
 	TS_STAMP(0);
 
+	/* STAGE 0 - Conversion to Floats 
+	 *           
+	 * 	16-bit Samples are converted to floats in range [-1, 1]
+	 */
+
 	// Copy raw buffer into a float work buffer
 	arm_q15_to_float(inputBuf, Process_work_buffer, FRAME_LENGTH);
 
 	TS_STAMP(1);
 
+	/* STAGE 1 - DC filtering 
+	 *           
+	 * 	Apply 3nd order high pass Butterworh filter with cuttoff at 150Hz
+	 *  DFSDM contains large DC component that has to be dealt with before computing the spectrum
+	 */
 
-	// Cyclesb: 9054
-	// DC removing filter
+
+	// DC blocking filter
 	arm_biquad_cascade_df1_f32(&iir_inst, Process_work_buffer, Process_work_buffer, FRAME_LENGTH);
-	// Cycles: 11303
-	//		  arm_biquad_casd_df1_inst_q31 iir_inst2;
-	//		  arm_biquad_cascade_df1_init_q31(&iir_inst2, 1, q31_biquad, q31_iir_state, 1);
-	//		  arm_biquad_cascade_df1_q31(&iir_inst2, buffer, bufferout, FFT_LEN);
+
 
 	TS_STAMP(2);
+
+
+	/* STAGE 2 - Apply Hamming scale window
+	 *           
+	 * 	In order to prevent high frequency artefacts from the rectangular nature of the overlapping window
+	 * 	a hammind window is applied to the Frame
+	 */
+
 
 	// Multiply by hamming window
 	arm_mult_f32(Process_work_buffer, float_hamming_512, Process_work_buffer, FRAME_LENGTH);
 
 	TS_STAMP(3);
+	/* STAGE 3 - Compute FFT spectrum
+	 *           
+	 * 	Real FFT spectrum computed on the frame
+	 */
+
 
 	// FFT input(Process_work_buffer) gets modified
 	arm_rfft_fast_f32(&f32_fft_inst, Process_work_buffer, Process_fft_output, 0);
 
-	// The rfft function outputs the upper coeff in second position
-	// Make sure the DC is real
+	// The rfft function outputs the spectrum in the following order
+	// [0_Real, N/2_Real, 1_Real, 1_Imag, 2_Real, 2_Imag, .... (N/2-1)_Real, (N/2-1)_Imag]
+	// The N/2 real coeff is stored in the imag position of the DC (0) coef
+	// We perform the reordering tand make sure the DC and N/2 is real
 	Process_fft_output[FRAME_LENGTH] = Process_fft_output[1];
 	Process_fft_output[1] = 0; // Set complex component to 0
 	Process_fft_output[FRAME_LENGTH+1] = 0; // Set complex component to 0
 
 	TS_STAMP(4);
 
+	/* STAGE 4 - Compute FFT Magnitude
+	 */
+
 	// Compute magnitude
 	// result is half of the FRAME_LENGTH (half of spectrum)
 	arm_cmplx_mag_f32(Process_fft_output, Process_fft_output, (FRAME_LENGTH/2) + 1);
 
 	TS_STAMP(5);
-
+	
+	/* STAGE 5 - Compute Mel Frequency Bins
+	 *           
+	 * 	The logarithmically spaced bins are a triangular weighted view into the FFT spectrum
+	 */
 	memset(mfs_output, 0, N_FILTS*sizeof(*mfs_output));
 
 	/* For each filter */
@@ -137,16 +171,22 @@ void MFCC_Process_Frame(q15_t *inputBuf, float32_t *mfcc_out){
 	}
 
 	TS_STAMP(6);
+	
+	/* STAGE 6 - Compute the logarithmic power in dB of the bins
+	 *           
+	 * Use a fast and safe 10*log10 implementation that avoids DIV/0 error
+	 */
 
-	//	  float32_t mean;
-	//	  arm_mean_f32(output, N_FILTS, &mean);
 	for (int i = 0; i < N_FILTS; i++){
 		// Take the 10.0 * log10(x) in a safe manner
 		mfs_output[i] =  safe_10log10f(mfs_output[i]);
 	}
 
 	TS_STAMP(7);
+	/* STAGE 7 - Compute DCT Type 2 of the Signal and Clip upper and lower coefs
+	 */
 
+	// Compute DCT and cut lower and uppor coefs keeping only 40
 	dct2_64_f32(dct_pState, mfs_output, mfcc_out);
 
 	TS_STAMP(8);
