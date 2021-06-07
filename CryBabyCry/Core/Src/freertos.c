@@ -366,7 +366,15 @@ void vTask_nn_inference(void *argument)
 		cry = nn_output_buffer[0];
 		other = nn_output_buffer[1];
 		printf("================\n");
-		printf("Detected: %s\n",(cry>other)? "CRY" : "OTHER");
+		if(cry>other){
+			printf("!!!!!BABY CRYING!!!!!!!\n");
+			printf("!!!!!BABY CRYING!!!!!!!\n");
+			printf("!!!!!BABY CRYING!!!!!!!\n");
+		} else{
+			printf("Detected: Other\n");
+
+		}
+//		printf("Detected: %s\n",(cry>other)? "CRY" : "OTHER");
 		printf("================\n");
 		printf("cry: %d other: %d Inference Time (ms): %f\n", cry, other, (htim16.Instance->CNT - timestamp)/100.0f);
 
@@ -375,7 +383,7 @@ void vTask_nn_inference(void *argument)
 		} else {
 			HAL_GPIO_WritePin(LED1_GPIO_Port, LED1_Pin, 0);
 		}
-		print_buffer_q31((q31_t *)cycles, 32);
+//		print_buffer_q31((q31_t *)cycles, 32);
 	}
   /* USER CODE END vTask_nn_inference */
 }

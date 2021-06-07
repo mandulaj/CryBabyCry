@@ -17,7 +17,7 @@ def np2bytes(array):
     return (array * 2**15).astype(np.int16).tobytes()
 
 
-ser = serial.Serial("/dev/ttyUSB1", 1500000)
+ser = serial.Serial("/dev/ttyUSB0", 1500000)
 
 
 # print((valid_x[0, :512] * 2**15).astype(np.int16))

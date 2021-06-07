@@ -155,7 +155,7 @@ bool Process_validation_Example(){
 	}
 }
 
-#define NUM_VAL 100
+#define NUM_VAL 1000
 
 
 void Validation_Start(){

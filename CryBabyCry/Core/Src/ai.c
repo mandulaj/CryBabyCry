@@ -39,8 +39,8 @@ static ai_buffer ai_output[AI_MFS_MODEL_OUT_NUM] = AI_MFS_MODEL_OUT;
 extern const ai_intq_info_list input_output_intq;
 
 // Quantization scale and offset
-static const float32_t AI_INPUT_ZERO_POINT = 10.0f;
-static const float32_t AI_INPUT_SCALE = 0.06497223675251007f;
+static const float32_t AI_INPUT_ZERO_POINT = 3.0f;
+static const float32_t AI_INPUT_SCALE = 0.05986613780260086f;
 
 
 

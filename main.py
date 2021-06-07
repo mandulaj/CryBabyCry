@@ -44,7 +44,7 @@ CONFIG={
     "n_frames": 64,
     "sf":16000,
     "sample_length":0,
-    "split":0.7,
+    "split":0.8,
     "audio_aug_os":0.7,
     "ceps_co_low": 10,
     "ceps_co_high": 14
@@ -257,8 +257,8 @@ def main():
 
     cmf32 = confusion_matrix(y_true, y_pred)
     cmi8 = confusion_matrix(y_true, y_pred_q8)
-    plot_confusion_matrix_raw(cmf32, title="float32_model")
-    plot_confusion_matrix_raw(cmi8, title='i8_model')
+    plot_confusion_matrix_raw(cmf32, title="Validation accuracy float32_model")
+    plot_confusion_matrix_raw(cmi8, title='Validation accuracy i8_model')
     plt.show()
 
 
