@@ -249,7 +249,7 @@ def segment_data(data, sample_length):
             segments = np.split(padded, num_segments)
 
             for s in segments:
-                if np.mean(np.abs(s)) > 0.01:
+                if np.mean(np.abs(s)) > 0.03:
                     new_data[k].append(s)
 
     return new_data
